@@ -1,0 +1,10 @@
+# 测试环境：H2 内存数据库（MySQL 兼容模式）
+spring:
+  datasource:
+    url: jdbc:h2:mem:ccc;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  sql:
+    init:
+      mode: always
