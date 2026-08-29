@@ -7,7 +7,7 @@ package com.constantconfig.center.core;
  * 则本次更新失败并抛出本异常；通过 {@link #getExistingId()} 可拿到已存在行的主键 id，
  * 便于调用方定位冲突记录。</p>
  */
-public class ConstantConfigCenterConflictException extends IllegalArgumentException {
+public class ConstantConfigCenterConflictException extends ConstantConfigCenterException {
 
     /** 已存在行的主键 id */
     private final Long existingId;

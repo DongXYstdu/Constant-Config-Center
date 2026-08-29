@@ -2,6 +2,7 @@ package com.constantconfig.center.provider;
 
 import com.constantconfig.center.core.ConstantConfigCenterCategory;
 import com.constantconfig.center.core.ConstantConfigCenterCategoryProvider;
+import com.constantconfig.center.core.ConstantConfigCenterException;
 import com.constantconfig.center.properties.ConstantConfigCenterProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -10,6 +11,7 @@ import org.springframework.jdbc.support.KeyHolder;
 
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -64,23 +66,16 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
     }
 
     @Override
-    public List<ConstantConfigCenterCategory> list() {
-        String sql = "SELECT " + SELECT_COLUMNS + " FROM " + categoryTable
-                + " ORDER BY path, sort";
-        return jdbcTemplate.query(sql, ROW_MAPPER);
-    }
-
-    @Override
-    public Long save(ConstantConfigCenterCategory category) {
+    public Long create(ConstantConfigCenterCategory category) {
         if (category.getCategoryId() != null) {
-            throw new IllegalArgumentException("分类更新暂不支持，仅支持新增分类");
+            throw new IllegalArgumentException("分类更新请使用 update，此处仅允许新增分类");
         }
         String categoryName = category.getCategoryName();
         if (categoryName == null || categoryName.trim().isEmpty()) {
             throw new IllegalArgumentException("分类名称不能为空");
         }
         if (getByCategoryName(categoryName.trim()) != null) {
-            throw new IllegalArgumentException("分类名称已存在：" + categoryName.trim());
+            throw new ConstantConfigCenterException("分类名称已存在：" + categoryName.trim());
         }
 
         Long parentId = category.getCategoryParentId() == null ? 0L : category.getCategoryParentId();
@@ -95,7 +90,7 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
         } else {
             ConstantConfigCenterCategory parent = get(parentId);
             if (parent == null) {
-                throw new IllegalArgumentException("父分类不存在：categoryId=" + parentId);
+                throw new ConstantConfigCenterException("父分类不存在：categoryId=" + parentId);
             }
             level = parent.getLevel() + 1;
             parentPath = parent.getPath();
@@ -127,9 +122,65 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
     }
 
     @Override
+    public boolean update(ConstantConfigCenterCategory category) {
+        if (category.getCategoryId() == null) {
+            throw new IllegalArgumentException("分类ID不能为空");
+        }
+        ConstantConfigCenterCategory existing = get(category.getCategoryId());
+        if (existing == null) {
+            return false;
+        }
+        String name = category.getCategoryName();
+        if (name != null && name.trim().isEmpty()) {
+            throw new IllegalArgumentException("分类名称不能为空");
+        }
+        if (name != null && !name.trim().equals(existing.getCategoryName())) {
+            ConstantConfigCenterCategory byName = getByCategoryName(name.trim());
+            if (byName != null) {
+                throw new ConstantConfigCenterException("分类名称已存在：" + name.trim());
+            }
+        }
+        String finalName = name != null ? name.trim() : existing.getCategoryName();
+        Integer sort = category.getSort() != null ? category.getSort() : existing.getSort();
+
+        String sql = "UPDATE " + categoryTable + " SET category_name = ?, sort = ? WHERE category_id = ?";
+        jdbcTemplate.update(sql, finalName, sort, existing.getCategoryId());
+        return true;
+    }
+
+    @Override
     public boolean delete(Long categoryId) {
         String sql = "DELETE FROM " + categoryTable + " WHERE category_id = ?";
         return jdbcTemplate.update(sql, categoryId) > 0;
+    }
+
+    @Override
+    public List<ConstantConfigCenterCategory> list(Long parentId, String keyword) {
+        StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + categoryTable + " WHERE 1 = 1");
+        List<Object> args = new ArrayList<>();
+        buildFilter(sql, args, parentId, keyword);
+        sql.append(" ORDER BY path, sort");
+        return jdbcTemplate.query(sql.toString(), ROW_MAPPER, args.toArray());
+    }
+
+    @Override
+    public List<ConstantConfigCenterCategory> listPage(Long parentId, String keyword, int offset, int limit) {
+        StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + categoryTable + " WHERE 1 = 1");
+        List<Object> args = new ArrayList<>();
+        buildFilter(sql, args, parentId, keyword);
+        sql.append(" ORDER BY path, sort LIMIT ? OFFSET ?");
+        args.add(limit);
+        args.add(offset);
+        return jdbcTemplate.query(sql.toString(), ROW_MAPPER, args.toArray());
+    }
+
+    @Override
+    public long count(Long parentId, String keyword) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM " + categoryTable + " WHERE 1 = 1");
+        List<Object> args = new ArrayList<>();
+        buildFilter(sql, args, parentId, keyword);
+        Long count = jdbcTemplate.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0L : count;
     }
 
     @Override
@@ -137,5 +188,17 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
         String sql = "SELECT COUNT(*) FROM " + categoryTable + " WHERE category_parent_id = ?";
         Long count = jdbcTemplate.queryForObject(sql, Long.class, categoryId);
         return count == null ? 0L : count;
+    }
+
+    /** 追加按父分类 + 关键字的过滤条件与参数 */
+    private void buildFilter(StringBuilder sql, List<Object> args, Long parentId, String keyword) {
+        if (parentId != null) {
+            sql.append(" AND category_parent_id = ?");
+            args.add(parentId);
+        }
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            sql.append(" AND category_name LIKE ?");
+            args.add("%" + keyword.trim() + "%");
+        }
     }
 }

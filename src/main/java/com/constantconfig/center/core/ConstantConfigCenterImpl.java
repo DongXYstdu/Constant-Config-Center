@@ -1,11 +1,14 @@
 package com.constantconfig.center.core;
 
+import com.constantconfig.center.api.CategoryPageQuery;
+import com.constantconfig.center.api.ConfigPageQuery;
 import com.constantconfig.center.api.ConstantConfigCenter;
+import com.constantconfig.center.api.PageResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,9 +16,12 @@ import java.util.Map;
 /**
  * 常量配置中心门面默认实现
  *
- * <p>职责：调用 {@link ConstantConfigCenterProvider} 获取配置条目，并按值类型处理——
- * STRING 直接返回文本，LIST / MAP 用 Jackson 反序列化；分类管理委托
- * {@link ConstantConfigCenterCategoryProvider}。本身不包含任何存储逻辑。</p>
+ * <p>职责：编排 {@link ConstantConfigCenterProvider}（配置存储）与
+ * {@link ConstantConfigCenterCategoryProvider}（分类存储），并按值类型处理——STRING 直接返回文本、
+ * LIST / MAP 用 Jackson 序列化（写）与反序列化（读）；分类树在内存组装。本身不包含任何存储逻辑。</p>
+ *
+ * <p>读写删以 {@code key} 定位；{@code update} / {@code delete} 依据存储层返回的存在性，
+ * 不存在时转抛 {@link ConstantConfigCenterNotFoundException}。</p>
  */
 public class ConstantConfigCenterImpl implements ConstantConfigCenter {
 
@@ -31,47 +37,36 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         this.objectMapper = objectMapper;
     }
 
+    // ────────────────────── 业务取值（读取） ──────────────────────
+
     @Override
     public String getConfig(String key) {
-        return getConfig(DEFAULT_CATEGORY_ID, key, (String) null);
+        ConstantConfigCenterItem item = provider.get(key);
+        return item == null ? null : item.getValue();
     }
 
     @Override
     public String getConfig(String key, String defaultValue) {
-        return getConfig(DEFAULT_CATEGORY_ID, key, defaultValue);
-    }
-
-    @Override
-    public <T> T getConfig(String key, Class<T> type) {
-        return getConfig(DEFAULT_CATEGORY_ID, key, type);
-    }
-
-    @Override
-    public String getConfig(Long categoryId, String key, String defaultValue) {
-        ConstantConfigCenterItem item = provider.get(categoryId, key);
-        if (item == null || item.getValue() == null) {
-            return defaultValue;
-        }
-        return item.getValue();
+        String value = getConfig(key);
+        return value == null ? defaultValue : value;
     }
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T> T getConfig(Long categoryId, String key, Class<T> type) {
-        ConstantConfigCenterItem item = provider.get(categoryId, key);
+    public <T> T getConfig(String key, TypeReference<T> typeRef) {
+        ConstantConfigCenterItem item = provider.get(key);
         if (item == null || item.getValue() == null) {
             return null;
         }
-        // STRING 类型直接返回文本，避免无谓的 JSON 解析
-        if (type == String.class) {
+        // 目标类型即 String：直接返回原文，避免无谓的 JSON 解析
+        if (typeRef.getType() == String.class) {
             return (T) item.getValue();
         }
         try {
-            return objectMapper.readValue(item.getValue(), type);
+            return objectMapper.readValue(item.getValue(), typeRef);
         } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(
-                    "配置值不是合法 JSON，无法反序列化为 " + type.getSimpleName()
-                            + "：categoryId=" + categoryId + ", key=" + key, e);
+            throw new ConstantConfigCenterSerializationException(
+                    "配置值无法反序列化为目标类型：key=" + key, e);
         }
     }
 
@@ -81,86 +76,103 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         return item == null ? null : item.getKey();
     }
 
+    // ────────────────────── 配置管理 CRUD ──────────────────────
+
     @Override
-    public Map<String, String> getAllConfig(Long categoryId) {
-        Map<String, String> result = new HashMap<>();
-        for (ConstantConfigCenterItem item : provider.list(categoryId)) {
-            if (item.getKey() != null) {
-                result.put(item.getKey(), item.getValue());
+    public Long createConfig(ConstantConfigCenterItem item) {
+        if (item.getCategoryId() == null) {
+            item.setCategoryId(DEFAULT_CATEGORY_ID);
+        }
+        if (item.getValueType() == null) {
+            item.setValueType(ConstantConfigCenterValueType.STRING);
+        }
+        // STRING 直接载入文本；LIST / MAP 需要先把集合/映射对象序列化为 JSON 文本存储
+        Object raw = item.getValueObject() != null ? item.getValueObject() : item.getValue();
+        item.setValue(serialize(raw, item.getValueType()));
+        return provider.create(item);
+    }
+
+    @Override
+    public void updateConfig(ConstantConfigCenterItem item) {
+        // 明确指定 LIST / MAP 且提供了值时，先序列化为 JSON 文本；否则交存储层做合并补丁（null 保留原值）
+        if (item.getValueType() == ConstantConfigCenterValueType.LIST
+                || item.getValueType() == ConstantConfigCenterValueType.MAP) {
+            Object raw = item.getValueObject() != null ? item.getValueObject() : item.getValue();
+            if (raw != null) {
+                item.setValue(serialize(raw, item.getValueType()));
             }
         }
-        return result;
-    }
-
-    @Override
-    public void setConfig(String configName, String key, String value) {
-        setConfig(DEFAULT_CATEGORY_ID, configName, key, value, (String) null);
-    }
-
-    @Override
-    public void setConfig(Long categoryId, String configName, String key, String value) {
-        setConfig(categoryId, configName, key, value, (String) null);
-    }
-
-    @Override
-    public void setConfig(Long categoryId, String configName, String key, String value, String remark) {
-        ConstantConfigCenterItem item = new ConstantConfigCenterItem();
-        item.setCategoryId(categoryId);
-        item.setConfigName(configName);
-        item.setKey(key);
-        item.setValue(value);
-        item.setValueType(ConstantConfigCenterValueType.STRING);
-        item.setRemark(remark);
-        provider.save(item);
-    }
-
-    @Override
-    public <T> void setConfig(String configName, String key, T value, ConstantConfigCenterValueType valueType) {
-        setConfig(DEFAULT_CATEGORY_ID, configName, key, value, valueType);
-    }
-
-    @Override
-    public <T> void setConfig(Long categoryId, String configName, String key, T value,
-                              ConstantConfigCenterValueType valueType) {
-        ConstantConfigCenterItem item = new ConstantConfigCenterItem();
-        item.setCategoryId(categoryId);
-        item.setConfigName(configName);
-        item.setKey(key);
-        item.setValueType(valueType);
-        item.setValue(serialize(value, valueType));
-        provider.save(item);
-    }
-
-    @Override
-    public boolean deleteConfig(String key) {
-        return deleteConfig(DEFAULT_CATEGORY_ID, key);
-    }
-
-    @Override
-    public boolean deleteConfig(Long categoryId, String key) {
-        return provider.delete(categoryId, key);
-    }
-
-    @Override
-    public Long createCategory(String categoryName, Long parentId, Integer sort) {
-        ConstantConfigCenterCategory category = new ConstantConfigCenterCategory();
-        category.setCategoryName(categoryName);
-        category.setCategoryParentId(parentId == null ? 0L : parentId);
-        category.setSort(sort);
-        return categoryProvider.save(category);
-    }
-
-    @Override
-    public boolean deleteCategory(Long categoryId) {
-        if (categoryProvider.countChildren(categoryId) > 0) {
-            throw new IllegalArgumentException("分类存在子分类，无法删除：categoryId=" + categoryId);
+        if (!provider.update(item)) {
+            throw new ConstantConfigCenterNotFoundException("key", item.getKey());
         }
-        return categoryProvider.delete(categoryId);
+    }
+
+    @Override
+    public void deleteConfig(String key) {
+        if (!provider.delete(key)) {
+            throw new ConstantConfigCenterNotFoundException("key", key);
+        }
+    }
+
+    @Override
+    public List<ConstantConfigCenterItem> getConfigList(Long categoryId, String keyword) {
+        return provider.list(categoryId, keyword);
+    }
+
+    @Override
+    public PageResult<ConstantConfigCenterItem> getConfigPage(ConfigPageQuery query) {
+        int page = normalizePage(query.getPage());
+        int size = normalizeSize(query.getSize());
+        int offset = (page - 1) * size;
+        long total = provider.count(query.getCategoryId(), query.getKeyword());
+        List<ConstantConfigCenterItem> list = provider.listPage(query.getCategoryId(), query.getKeyword(), offset, size);
+        return PageResult.of(list, total, page, size);
+    }
+
+    // ────────────────────── 分类管理 ──────────────────────
+
+    @Override
+    public Long createCategory(ConstantConfigCenterCategory category) {
+        return categoryProvider.create(category);
+    }
+
+    @Override
+    public void updateCategory(ConstantConfigCenterCategory category) {
+        if (!categoryProvider.update(category)) {
+            throw new ConstantConfigCenterNotFoundException("categoryId", category.getCategoryId());
+        }
+    }
+
+    @Override
+    public void deleteCategory(Long categoryId) {
+        if (categoryProvider.get(categoryId) == null) {
+            throw new ConstantConfigCenterNotFoundException("categoryId", categoryId);
+        }
+        if (categoryProvider.countChildren(categoryId) > 0) {
+            throw new ConstantConfigCenterException("分类存在子分类，无法删除：categoryId=" + categoryId);
+        }
+        categoryProvider.delete(categoryId);
+    }
+
+    @Override
+    public List<ConstantConfigCenterCategory> getCategoryList(Long parentId, String keyword) {
+        return categoryProvider.list(parentId, keyword);
+    }
+
+    @Override
+    public PageResult<ConstantConfigCenterCategory> getCategoryPage(CategoryPageQuery query) {
+        int page = normalizePage(query.getPage());
+        int size = normalizeSize(query.getSize());
+        int offset = (page - 1) * size;
+        long total = categoryProvider.count(query.getParentId(), query.getKeyword());
+        List<ConstantConfigCenterCategory> list =
+                categoryProvider.listPage(query.getParentId(), query.getKeyword(), offset, size);
+        return PageResult.of(list, total, page, size);
     }
 
     @Override
     public List<ConstantConfigCenterCategory> listCategoryTree() {
-        List<ConstantConfigCenterCategory> all = categoryProvider.list();
+        List<ConstantConfigCenterCategory> all = categoryProvider.list(null, null);
         Map<Long, ConstantConfigCenterCategory> byId = new LinkedHashMap<>();
         for (ConstantConfigCenterCategory category : all) {
             byId.put(category.getCategoryId(), category);
@@ -177,23 +189,36 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         return roots;
     }
 
+    // ────────────────────── 内部工具 ──────────────────────
+
     /**
      * 按值类型序列化：STRING 直接存文本；LIST / MAP 序列化为 JSON 文本
      */
     private String serialize(Object value, ConstantConfigCenterValueType valueType) {
         switch (valueType) {
             case STRING:
-                return value instanceof String ? (String) value : String.valueOf(value);
+                return value == null ? null : (value instanceof String ? (String) value : String.valueOf(value));
             case LIST:
             case MAP:
+                if (value == null) {
+                    return null;
+                }
                 try {
                     return objectMapper.writeValueAsString(value);
                 } catch (JsonProcessingException e) {
-                    throw new IllegalArgumentException(
-                            "配置值无法序列化为 JSON，类型 " + valueType.name(), e);
+                    throw new ConstantConfigCenterSerializationException(
+                            "配置值无法序列化为 JSON，值类型 " + valueType, e);
                 }
             default:
-                throw new IllegalArgumentException("不支持的值类型：" + valueType);
+                throw new ConstantConfigCenterException("不支持的值类型：" + valueType);
         }
+    }
+
+    private int normalizePage(int page) {
+        return page < 1 ? 1 : page;
+    }
+
+    private int normalizeSize(int size) {
+        return size < 1 ? 10 : size;
     }
 }

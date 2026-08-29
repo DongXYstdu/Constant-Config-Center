@@ -24,8 +24,11 @@ public class ConstantConfigCenterItem {
     /** 键（对应 key 列，程序取值用） */
     private String key;
 
-    /** 值（LIST / MAP 场景存 JSON 文本） */
+    /** 值（STRING 场景直接载入字符串；LIST / MAP 场景为经 {@link #valueObject} 序列化后写入的 JSON 文本） */
     private String value;
+
+    /** 写入载体（LIST / MAP 时传入集合/映射对象，由门面序列化为 JSON 存入 {@code value}；STRING 时忽略） */
+    private Object valueObject;
 
     /** 值类型，默认 STRING */
     private ConstantConfigCenterValueType valueType = ConstantConfigCenterValueType.STRING;
@@ -80,6 +83,14 @@ public class ConstantConfigCenterItem {
 
     public void setValue(String value) {
         this.value = value;
+    }
+
+    public Object getValueObject() {
+        return valueObject;
+    }
+
+    public void setValueObject(Object valueObject) {
+        this.valueObject = valueObject;
     }
 
     public ConstantConfigCenterValueType getValueType() {

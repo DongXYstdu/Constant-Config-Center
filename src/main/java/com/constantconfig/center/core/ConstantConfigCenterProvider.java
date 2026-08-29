@@ -9,20 +9,24 @@ import java.util.List;
  *
  * <p><b>职责边界</b>：本接口只负责配置数据的存储读写，返回 {@link ConstantConfigCenterItem} 模型；
  * 值类型转换（如 LIST / MAP 的 JSON 反序列化）由上层门面 {@code ConstantConfigCenter} 负责。</p>
+ *
+ * <p><b>原语约定</b>：{@code key} 全局唯一，是读写删的定位键；{@code update} / {@code delete}
+ * 返回 {@code boolean} 表示目标记录是否存在（不存在返回 {@code false}，由门面转抛业务异常）；
+ * {@code create} 遇 {@code config_name} 或 {@code key} 唯一键冲突时抛
+ * {@link ConstantConfigCenterConflictException}。</p>
  */
 public interface ConstantConfigCenterProvider {
 
     /**
      * 按键查询配置条目（{@code key} 全局唯一）
      *
-     * @param categoryId 分类ID（key 全局唯一，本参数仅作兼容保留，不参与定位）
      * @param key 键
      * @return 配置条目；不存在时返回 {@code null}
      */
-    ConstantConfigCenterItem get(Long categoryId, String key);
+    ConstantConfigCenterItem get(String key);
 
     /**
-     * 按常量配置名称查询（{@code config_name} 全局唯一，用于名称反查 key）
+     * 按常量配置名称查询（{@code config_name} 全局唯一，用于名称反查与去重）
      *
      * @param configName 常量配置名称
      * @return 配置条目；不存在时返回 {@code null}
@@ -30,31 +34,64 @@ public interface ConstantConfigCenterProvider {
     ConstantConfigCenterItem getByConfigName(String configName);
 
     /**
-     * 按分类查询该分类下的全部配置条目
+     * 新增配置条目（纯新增，返回主键 id）
      *
-     * @param categoryId 分类ID
-     * @return 配置条目列表；不存在时返回空列表（非 null）
-     */
-    List<ConstantConfigCenterItem> list(Long categoryId);
-
-    /**
-     * 新增配置条目（纯新增，不做静默覆盖）
-     *
-     * <p>{@code id} 无需设置，由存储层维护。</p>
+     * <p>{@code id} 无需设置，由存储层维护；{@code version} 初始为 0，时间列取当前时间。</p>
      *
      * @param item 配置条目
-     * @throws ConstantConfigCenterConflictException {@code config_name} 或 {@code key} 任一全局唯一键
+     * @return 新记录主键 id
+     * @throws ConstantConfigCenterConflictException {@code config_name} 或 {@code key} 任一唯一键
      *         已被其它记录占用时抛出，可通过 {@link ConstantConfigCenterConflictException#getExistingId()}
      *         获取已存在行的主键 id
      */
-    void save(ConstantConfigCenterItem item);
+    Long create(ConstantConfigCenterItem item);
 
     /**
-     * 删除配置条目（{@code key} 全局唯一）
+     * 更新配置条目（按 {@code key} 定位，更新值相关字段）
      *
-     * @param categoryId 分类ID（key 全局唯一，本参数仅作兼容保留，不参与定位）
-     * @param key 键
-     * @return 是否删除成功（配置不存在时返回 {@code false}）
+     * <p>可更新 {@code configName} / {@code value} / {@code valueType} / {@code remark} /
+     * {@code categoryId}，不修改 {@code key} 本身；{@code version} 自增并刷新 {@code updateTime}。</p>
+     *
+     * @param item 配置条目（必须携带 {@code key}）
+     * @return 目标记录是否存在（不存在返回 {@code false}，由门面转抛异常）
+     * @throws ConstantConfigCenterConflictException 新的 {@code config_name} 被其它记录占用时抛出
      */
-    boolean delete(Long categoryId, String key);
+    boolean update(ConstantConfigCenterItem item);
+
+    /**
+     * 删除配置条目（按 {@code key} 定位）
+     *
+     * @param key 键
+     * @return 是否删除成功（目标不存在返回 {@code false}，由门面转抛异常）
+     */
+    boolean delete(String key);
+
+    /**
+     * 配置列表（可选按分类 + 关键字过滤，命中全部）
+     *
+     * @param categoryId 分类ID；{@code null} 查询全部
+     * @param keyword 关键字，模糊匹配 key / config_name；{@code null} / 空则不过滤
+     * @return 配置条目列表；无数据时返回空列表（非 null）
+     */
+    List<ConstantConfigCenterItem> list(Long categoryId, String keyword);
+
+    /**
+     * 配置分页查询（按下标范围返回命中记录的某一页）
+     *
+     * @param categoryId 分类ID；{@code null} 查询全部
+     * @param keyword 关键字，模糊匹配 key / config_name；{@code null} / 空则不过滤
+     * @param offset 起始行偏移（从 0 开始）
+     * @param limit 返回行数上限
+     * @return 该页配置条目列表；无数据时返回空列表（非 null）
+     */
+    List<ConstantConfigCenterItem> listPage(Long categoryId, String keyword, int offset, int limit);
+
+    /**
+     * 按过滤条件统计配置条目的命中总数
+     *
+     * @param categoryId 分类ID；{@code null} 查询全部
+     * @param keyword 关键字，模糊匹配 key / config_name；{@code null} / 空则不过滤
+     * @return 命中总数
+     */
+    long count(Long categoryId, String keyword);
 }
