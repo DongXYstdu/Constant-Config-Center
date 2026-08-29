@@ -1,0 +1,48 @@
+Git 命令备忘（SSL 证书验证临时绕过）
+====================================
+
+【问题背景】
+本机 Git 使用 OpenSSL 后端（http.sslbackend=openssl）无法验证 GitHub 证书，
+推送 / 拉取会报错：
+    fatal: unable to access ... SSL certificate OpenSSL verify result:
+    unable to get local issuer certificate (20)
+解决：在命令中临时加参数  -c http.sslVerify=false
+（-c 表示仅本次命令生效，不写入任何配置文件）
+
+【项目信息】
+仓库目录：D:\study\常量配置中心\Constant-Config-Center
+远程地址：https://github.com/DongXYstdu/Constant-Config-Center.git
+默认分支：master
+
+──────────────────────────────
+以下命令均在仓库目录下执行
+──────────────────────────────
+
+# 1. 查看状态
+git status
+
+# 2. 暂存全部改动并提交
+git add .
+git commit -m "提交说明"
+
+# 3. 推送（带 SSL 绕过，日常用这条）
+git -c http.sslVerify=false push
+
+# 4. 拉取（带 SSL 绕过）
+git -c http.sslVerify=false pull
+
+# 5. 首次推送并建立跟踪（已推送过则不需要）
+git -c http.sslVerify=false push -u origin master
+
+# 6. 强制覆盖远程 master（谨慎！会重写远程历史）
+git -c http.sslVerify=false push --force origin master
+
+# 7. 查看远程地址
+git remote -v
+
+──────────────────────────────
+【长期方案（推荐）】
+──────────────────────────────
+将 SSL 后端改为 Windows 系统证书库（schannel），
+配置一次后所有 git 操作无需再加 -c 参数：
+    git config --global http.sslBackend schannel
