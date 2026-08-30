@@ -1,48 +1,25 @@
-package com.constantconfig.center.model;
+package com.constantconfig.center.model.view;
+
+import com.constantconfig.center.model.ConstantConfigValueType;
 
 import java.time.LocalDateTime;
 
 /**
- * 常量配置实体
+ * 常量配置读视图
  *
- * <p>对应 {@code constant_config_center} 表的一行记录，是 Provider 与数据库之间的数据载体。</p>
- *
- * <p>现数据形态为单值 String（{@code value}）；{@code valueType} 预留 LIST / MAP 场景，
- * 后续取值时按类型做 JSON 反序列化。</p>
+ * <p>面向调用方的只读返回对象，来自存储 DO 的映射；不含写入辅助字段。</p>
  */
-public class ConstantConfig {
+public class ConfigView {
 
-    /** 主键 */
     private Long id;
-
-    /** 分类ID（关联 constant_config_category.category_id） */
     private Long categoryId;
-
-    /** 常量配置名称（全局唯一，对应 config_name 列） */
     private String configName;
-
-    /** 键（对应 key 列，程序取值用） */
     private String key;
-
-    /** 值（STRING 场景直接载入字符串；LIST / MAP 场景为经 {@link #valueObject} 序列化后写入的 JSON 文本） */
     private String value;
-
-    /** 写入载体（LIST / MAP 时传入集合/映射对象，由门面序列化为 JSON 存入 {@code value}；STRING 时忽略） */
-    private Object valueObject;
-
-    /** 值类型，默认 STRING */
-    private ConstantConfigValueType valueType = ConstantConfigValueType.STRING;
-
-    /** 版本号，用于乐观并发与变更识别 */
-    private Long version = 0L;
-
-    /** 备注 */
+    private ConstantConfigValueType valueType;
     private String remark;
-
-    /** 创建时间 */
+    private Long version;
     private LocalDateTime createTime;
-
-    /** 更新时间 */
     private LocalDateTime updateTime;
 
     public Long getId() {
@@ -85,14 +62,6 @@ public class ConstantConfig {
         this.value = value;
     }
 
-    public Object getValueObject() {
-        return valueObject;
-    }
-
-    public void setValueObject(Object valueObject) {
-        this.valueObject = valueObject;
-    }
-
     public ConstantConfigValueType getValueType() {
         return valueType;
     }
@@ -101,20 +70,20 @@ public class ConstantConfig {
         this.valueType = valueType;
     }
 
-    public Long getVersion() {
-        return version;
-    }
-
-    public void setVersion(Long version) {
-        this.version = version;
-    }
-
     public String getRemark() {
         return remark;
     }
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
     public LocalDateTime getCreateTime() {

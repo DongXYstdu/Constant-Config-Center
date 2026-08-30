@@ -30,22 +30,23 @@ VALUES
 -- -------------------------------------------------------------
 -- 2. 配置键值表
 -- 说明：category_id 关联 constant_config_category.category_id
---       config_name（常量配置名称）与 key（键）均全局唯一，互不重复
+--       config_name（常量配置名称）与 config_key（键）均全局唯一，互不重复
+-- B8：key/value 改名为 config_key/config_value，去掉 MySQL 保留字，避免反引号包裹
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `constant_config_center` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `category_id` BIGINT       NOT NULL COMMENT '分类ID（关联 constant_config_category.category_id）',
     `config_name`  VARCHAR(128) NOT NULL COMMENT '常量配置名称（全局唯一）',
-    `key`  VARCHAR(128) NOT NULL COMMENT '键（全局唯一，程序取值用）',
-    `value`       TEXT         NOT NULL COMMENT '值（当前为 String；LIST/MAP 场景存 JSON 文本）',
+    `config_key`   VARCHAR(128) NOT NULL COMMENT '键（全局唯一，程序取值用）',
+    `config_value` TEXT         NOT NULL COMMENT '值（当前为 String；LIST/MAP 场景存 JSON 文本）',
     `value_type`  VARCHAR(16)  NOT NULL DEFAULT 'STRING' COMMENT '值类型：STRING | LIST | MAP',
     `version`     BIGINT       NOT NULL DEFAULT 0 COMMENT '版本号，用于乐观并发与变更识别',
     `remark`      VARCHAR(255) DEFAULT NULL COMMENT '备注',
     `create_time` DATETIME     NOT NULL COMMENT '创建时间',
     `update_time` DATETIME     NOT NULL COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_config_key` (`config_name`),
-    UNIQUE KEY `uk_key` (`key`),
+    UNIQUE KEY `uk_config_name` (`config_name`),
+    UNIQUE KEY `uk_config_key` (`config_key`),
     -- 外键兜底：防止 category_id 指向不存在的分类（配合应用层“删分类需无配置”校验双重防护）
     CONSTRAINT `fk_ccc_category_id` FOREIGN KEY (`category_id`)
         REFERENCES `constant_config_category` (`category_id`)

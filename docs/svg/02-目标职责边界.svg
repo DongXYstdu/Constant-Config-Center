@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 680" width="1080" height="680" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+  <rect x="0" y="0" width="1080" height="680" fill="#fbfcfe"/>
+  <text x="40" y="42" font-size="20" font-weight="bold" fill="#1f2937">目标职责边界 —— 门面只做编排，职责单一化</text>
+
+  <!-- Command/View layer -->
+  <g>
+    <rect x="60" y="70" width="300" height="120" rx="8" fill="#eef4ff" stroke="#3b6ee1" stroke-width="2"/>
+    <text x="78" y="98" font-size="15" font-weight="bold" fill="#2743c4">写命令 / 读视图（新）</text>
+    <text x="78" y="120" font-size="12" fill="#6b7280">SaveConfigCommand / SaveCategoryCommand</text>
+    <text x="78" y="140" font-size="12" fill="#6b7280">ConfigView / CategoryView（读返回）</text>
+    <text x="78" y="160" font-size="12" fill="#6b7280">不含 version / createTime / children</text>
+  </g>
+
+  <!-- facad -->
+  <g>
+    <rect x="420" y="70" width="300" height="120" rx="8" fill="#fff7ed" stroke="#ea7311" stroke-width="2"/>
+    <text x="438" y="98" font-size="15" font-weight="bold" fill="#b45309">service.ConstantConfigCenterImpl</text>
+    <text x="438" y="120" font-size="12" fill="#6b7280">只做编排：委托 ValueCodec /</text>
+    <text x="438" y="140" font-size="12" fill="#6b7280">Pagination / TreeAssembler / Store</text>
+    <text x="438" y="160" font-size="12" fill="#6b7280">不持有序列化与分页细节</text>
+  </g>
+
+  <!-- value objects -->
+  <g>
+    <rect x="780" y="70" width="260" height="120" rx="8" fill="#ecfdf5" stroke="#0f9d63" stroke-width="2"/>
+    <text x="798" y="98" font-size="15" font-weight="bold" fill="#0b7a4b">领域工具（抽离，新）</text>
+    <text x="798" y="122" font-size="12" fill="#6b7280">ValueCodec —— 值类型序列化</text>
+    <text x="798" y="142" font-size="12" fill="#6b7280">Pagination —— 统一分页值对象</text>
+    <text x="798" y="162" font-size="12" fill="#6b7280">CategoryTreeAssembler —— 树组装</text>
+  </g>
+
+  <!-- spi Split -->
+  <g>
+    <rect x="60" y="260" width="300" height="120" rx="8" fill="#f3e8ff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="78" y="288" font-size="15" font-weight="bold" fill="#6d28d9">spi 拆分（命令/查询分离）</text>
+    <text x="78" y="310" font-size="12" fill="#6b7280">ConfigReadStore / ConfigWriteStore</text>
+    <text x="78" y="330" font-size="12" fill="#6b7280">CategoryReadStore / CategoryWriteStore</text>
+    <text x="78" y="350" font-size="12" fill="#6b7280">校验方法暴露为可替换 hook</text>
+  </g>
+
+  <!-- pure -->
+  <g>
+    <rect x="420" y="260" width="300" height="120" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="438" y="288" font-size="15" font-weight="bold" fill="#1d4ed8">存储 DO 独立（model/do）</text>
+    <text x="438" y="310" font-size="12" fill="#6b7280">ConstantConfigDO / CategoryDO</text>
+    <text x="438" y="330" font-size="12" fill="#6b7280">只描述表结构，含 version/time</text>
+    <text x="438" y="350" font-size="12" fill="#6b7280">不再被门面当外部参数</text>
+  </g>
+
+  <!-- jdbc -->
+  <g>
+    <rect x="240" y="450" width="300" height="96" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+    <text x="258" y="480" font-size="15" font-weight="bold" fill="#b91c1c">spi.jdbc.*（事务化）</text>
+    <text x="258" y="502" font-size="12" fill="#6b7280">createCategory 包 TransactionTemplate</text>
+    <text x="258" y="522" font-size="12" fill="#6b7280">表名白名单校验</text>
+  </g>
+
+  <!-- valtype guard -->
+  <g>
+    <rect x="620" y="450" width="300" height="96" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="638" y="480" font-size="15" font-weight="bold" fill="#b45309">value_type 严格校验</text>
+    <text x="638" y="502" font-size="12" fill="#6b7280">启动体检 + fail-fast</text>
+    <text x="638" y="522" font-size="12" fill="#6b7280">列名去保留字（config_key）下一步</text>
+  </g>
+
+  <!-- edges -->
+  <g stroke="#6b7280" stroke-width="1.6" fill="none">
+    <path d="M360 130 C 390 120 395 120 420 130" marker-end="url(#arrowB)"/>
+    <path d="M540 190 C 520 225 420 240 260 255" marker-end="url(#arrowB)"/>
+    <path d="M540 190 C 600 220 720 230 800 240" marker-end="url(#arrowB)"/>
+    <path d="M360 130 C 360 200 260 240 200 255" marker-end="url(#arrowB)" stroke-dasharray="4 3" stroke="#2563eb"/>
+    <path d="M780 320 C 640 380 500 400 420 440" marker-end="url(#arrowB)"/>
+    <path d="M300 380 C 300 400 300 415 330 445" marker-end="url(#arrowB)" stroke-dasharray="4 3"/>
+  </g>
+
+  <defs>
+    <marker id="arrowB" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0 0 L8 3 L0 6 Z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <text x="60" y="640" font-size="12" fill="#9ca3af">图 02 · 目标：新增 写命令/读视图 与 领域工具（ValueCodec/Pagination/TreeAssembler）；SPI 命令/查询拆分；存储 DO 独立；JDBC 事务化与类型强校验。</text>
+</svg>

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 640" width="1080" height="640" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+  <rect x="0" y="0" width="1080" height="640" fill="#fbfcfe"/>
+  <text x="40" y="42" font-size="20" font-weight="bold" fill="#1f2937">当前职责与依赖 —— constant-config-spring-boot-starter</text>
+
+  <!-- 门面接口 -->
+  <g>
+    <rect x="60" y="80" width="280" height="88" rx="8" fill="#eef4ff" stroke="#3b6ee1" stroke-width="2"/>
+    <text x="78" y="110" font-size="15" font-weight="bold" fill="#2743c4">api.ConstantConfigCenter（门面接口）</text>
+    <text x="78" y="130" font-size="12" fill="#6b7280">20 个方法：取值 + CRUD + 分页 + 树</text>
+    <text x="78" y="148" font-size="12" fill="#6b7280">DEFAULT_CATEGORY_ID=1L</text>
+  </g>
+
+  <!-- 门面实现 -->
+  <g>
+    <rect x="400" y="80" width="300" height="118" rx="8" fill="#fff7ed" stroke="#ea7311" stroke-width="2"/>
+    <text x="418" y="110" font-size="15" font-weight="bold" fill="#b45309">service.ConstantConfigCenterImpl（God 类）</text>
+    <text x="418" y="132" font-size="12" fill="#6b7280">· 序列化 / 反序列化（serialize + ObjectMapper）</text>
+    <text x="418" y="150" font-size="12" fill="#6b7280">· 分页计算 normalize / offset（默认 size=10）</text>
+    <text x="418" y="168" font-size="12" fill="#6b7280">· 树组装 / 删除级联校验</text>
+    <text x="418" y="186" font-size="12" fill="#6b7280">依赖 ObjectMapper</text>
+  </g>
+
+  <!-- 事件:autoconfig -->
+  <g>
+    <rect x="760" y="80" width="280" height="92" rx="8" fill="#ecfdf5" stroke="#0f9d63" stroke-width="2"/>
+    <text x="778" y="110" font-size="15" font-weight="bold" fill="#0b7a4b">ConstantConfigAutoConfiguration</text>
+    <text x="778" y="130" font-size="12" fill="#6b7280">手动 new JDBC Provider + Impl</text>
+    <text x="778" y="150" font-size="12" fill="#6b7280">@ConditionalOnMissingBean 可替换</text>
+  </g>
+
+  <!-- SPI girl -->
+  <g>
+    <rect x="60" y="270" width="280" height="92" rx="8" fill="#f3e8ff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="78" y="300" font-size="15" font-weight="bold" fill="#6d28d9">spi.ConstantConfigProvider（10 methods）</text>
+    <text x="78" y="322" font-size="12" fill="#6b7280">CQ + countByCategory 混一</text>
+    <text x="78" y="344" font-size="12" fill="#6b7280">命令/查询/门面校验未分离</text>
+  </g>
+  <g>
+    <rect x="400" y="270" width="280" height="92" rx="8" fill="#f3e8ff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="418" y="300" font-size="15" font-weight="bold" fill="#6d28d9">spi.ConstantConfigCategoryProvider（10）</text>
+    <text x="418" y="322" font-size="12" fill="#6b7280">CQ + countChildren 混一</text>
+    <text x="418" y="344" font-size="12" fill="#6b7280">path/level 在存储层生成</text>
+  </g>
+
+  <!-- jdbc impl -->
+  <g>
+    <rect x="60" y="430" width="280" height="94" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+    <text x="78" y="460" font-size="15" font-weight="bold" fill="#b91c1c">spi.jdbc.ConstantConfigJdbcProvider</text>
+    <text x="78" y="482" font-size="12" fill="#6b7280">反引号 `key`/`value` · LIMIT/OFFSET</text>
+    <text x="78" y="504" font-size="12" fill="#6b7280">update 乐观锁 · 冲突反查</text>
+  </g>
+  <g>
+    <rect x="400" y="430" width="280" height="94" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+    <text x="418" y="460" font-size="15" font-weight="bold" fill="#b91c1c">spi.jdbc.ConstantConfigCategoryJdbcProvider</text>
+    <text x="418" y="482" font-size="12" fill="#6b7280">INSERT + UPDATE 两步回填 path</text>
+    <text x="418" y="504" font-size="12" fill="#6b7280">非事务 · 脏行风险</text>
+  </g>
+
+  <!-- model/shared -->
+  <g>
+    <rect x="760" y="270" width="280" height="150" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="778" y="300" font-size="15" font-weight="bold" fill="#1d4ed8">共享对象（职责混杂）</text>
+    <text x="778" y="322" font-size="12" fill="#6b7280">model.ConstantConfig</text>
+    <text x="778" y="340" font-size="12" fill="#9ca3af">  DO + 门面参数 + valueObject</text>
+    <text x="778" y="362" font-size="12" fill="#6b7280">model.ConstantConfigCategory</text>
+    <text x="778" y="380" font-size="12" fill="#9ca3af">  DO + 树 children + level</text>
+    <text x="778" y="400" font-size="12" fill="#6b7280">query / properties / exception</text>
+  </g>
+
+  <!-- edges -->
+  <g stroke="#6b7280" stroke-width="1.6" fill="none">
+    <!-- api <- impl -->
+    <path d="M340 124 L400 124" marker-end="url(#arrowG)"/>
+    <!-- impl -> spi -->
+    <path d="M550 198 C 500 230 420 255 200 265" marker-end="url(#arrowG)"/>
+    <path d="M550 198 C 520 230 480 258 540 265" marker-end="url(#arrowG)"/>
+    <!-- impl -> model -->
+    <path d="M600 198 C 700 240 780 250 830 268" marker-end="url(#arrowG)"/>
+    <!-- spi -> jdbc -->
+    <path d="M200 362 C 200 395 200 400 200 425" marker-end="url(#arrowG)"/>
+    <path d="M540 362 C 540 395 540 400 540 425" marker-end="url(#arrowG)"/>
+    <!-- autoconfig -> all -->
+    <path d="M900 172 C 900 210 500 210 200 250" marker-end="url(#arrowG)" stroke-dasharray="4 3" stroke="#0f9d63"/>
+    <path d="M1000 172 C 1000 300 990 300 1030 420" marker-end="url(#arrowG)" stroke-dasharray="4 3" stroke="#0f9d63"/>
+  </g>
+
+  <defs>
+    <marker id="arrowG" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0 0 L8 3 L0 6 Z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <text x="60" y="610" font-size="12" fill="#9ca3af">图 01 · 当前实现：门面承担序列化/分页/树/校验四类职责；SPI 命令/查询/校验未拆；共享 DO 含写入与展示字段；JDBC 方言硬编码。</text>
+</svg>

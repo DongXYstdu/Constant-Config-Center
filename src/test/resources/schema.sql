@@ -20,20 +20,20 @@ CREATE TABLE IF NOT EXISTS constant_config_category (
 INSERT INTO constant_config_category (category_id, category_parent_id, category_name, path, level, sort)
 VALUES (1, 0, '默认', '/1', 1, 0);
 
--- 2. 配置键值表（config_name 与 key 均全局唯一）
+-- 2. 配置键值表（config_name 与 config_key 均全局唯一；B8 已去保留字）
 CREATE TABLE IF NOT EXISTS constant_config_center (
-    id          BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    category_id BIGINT        NOT NULL,
-    config_name VARCHAR(128)  NOT NULL,
-    `key`       VARCHAR(128)  NOT NULL,
-    `value`     VARCHAR(1000) NOT NULL,
-    value_type  VARCHAR(16)   NOT NULL DEFAULT 'STRING',
-    version     BIGINT        NOT NULL DEFAULT 0,
-    remark      VARCHAR(255)  DEFAULT NULL,
-    create_time TIMESTAMP     NOT NULL,
-    update_time TIMESTAMP     NOT NULL,
-    CONSTRAINT uk_config_key UNIQUE (config_name),
-    CONSTRAINT uk_key UNIQUE (`key`),
+    id            BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    category_id   BIGINT        NOT NULL,
+    config_name   VARCHAR(128)  NOT NULL,
+    config_key    VARCHAR(128)  NOT NULL,
+    config_value  VARCHAR(1000) NOT NULL,
+    value_type    VARCHAR(16)   NOT NULL DEFAULT 'STRING',
+    version       BIGINT        NOT NULL DEFAULT 0,
+    remark        VARCHAR(255)  DEFAULT NULL,
+    create_time   TIMESTAMP     NOT NULL,
+    update_time   TIMESTAMP     NOT NULL,
+    CONSTRAINT uk_config_name UNIQUE (config_name),
+    CONSTRAINT uk_config_key UNIQUE (config_key),
     -- 外键兜底（对齐 production 外键约束）：防止 category_id 指向不存在的分类
     CONSTRAINT fk_ccc_category_id FOREIGN KEY (category_id)
         REFERENCES constant_config_category (category_id)

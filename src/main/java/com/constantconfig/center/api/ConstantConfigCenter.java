@@ -1,7 +1,9 @@
 package com.constantconfig.center.api;
 
-import com.constantconfig.center.model.ConstantConfig;
-import com.constantconfig.center.model.ConstantConfigCategory;
+import com.constantconfig.center.model.command.SaveCategoryCommand;
+import com.constantconfig.center.model.command.SaveConfigCommand;
+import com.constantconfig.center.model.view.CategoryView;
+import com.constantconfig.center.model.view.ConfigView;
 import com.constantconfig.center.exception.ConstantConfigConflictException;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.exception.ConstantConfigNotFoundException;
@@ -19,12 +21,13 @@ import java.util.List;
  * <p><b>定位语义</b>：读取、更新、删除一律以 {@code key} 为全局唯一键定位，
  * 分类（category）仅用于罗列 / 分页过滤与层级组织。</p>
  *
- * <p><b>两类视角</b>：<ul>
+ * <p><b>三类模型</b>：<ul>
+ * <li>写命令 —— {@link SaveConfigCommand} / {@link SaveCategoryCommand}，承载新增 / 更新的入参；
+ *     {@code value} 为单一 {@link Object}（STRING 传 {@code String}，LIST / MAP 传集合 / 映射对象），
+ *     由门面按 {@code valueType} 统一序列化后落库。</li>
+ * <li>读视图 —— {@link ConfigView} / {@link CategoryView}，对外只读返回，不含写入辅助字段。</li>
  * <li>业务取值 —— {@link #getConfig(String)} 按存储值类型召回：STRING 直接返回文本，
- *     LIST / MAP 返回 JSON 文本；需要反序列化为强类型时用 {@link #getConfig(String, TypeReference)}
- *     传入 {@link TypeReference} 以保留泛型。</li>
- * <li>管理 CRUD —— {@code createConfig / updateConfig / deleteConfig / getConfigList / getConfigPage}
- *     以 {@link ConstantConfig} 实体承载，支持增删改、列表与分页。</li>
+ *     LIST / MAP 返回 JSON 文本；需要反序列化为强类型时用 {@link #getConfig(String, TypeReference)}。</li>
  * </ul></p>
  *
  * <p><b>异常约定</b>（均为 {@link ConstantConfigException} 子类，
@@ -35,7 +38,13 @@ import java.util.List;
  */
 public interface ConstantConfigCenter {
 
-    /** 默认分类ID，对应 {@code constant_config_category} 中 category_id=1 的分类 */
+    /**
+     * 默认分类ID，对应 {@code constant_config_category} 中 category_id=1 的分类。
+     *
+     * @deprecated 默认分类 ID 已收敛到 {@code ConstantConfigProperties.defaultCategoryId}，
+     *             实现统一从该属性取值；此处保留仅为兼容既有引用。
+     */
+    @Deprecated
     Long DEFAULT_CATEGORY_ID = 1L;
 
     // ────────────────────── 业务取值（读取） ──────────────────────
@@ -86,26 +95,28 @@ public interface ConstantConfigCenter {
     /**
      * 新增配置（纯新增，冲突抛异常）
      *
-     * <p>{@code item} 中 {@code id} / {@code version} / {@code createTime} / {@code updateTime}
-     * 无需设置，由存储层维护。</p>
+     * <p>{@code value} 为单一 {@link Object}：STRING 传 {@code String}，LIST / MAP 传集合 / 映射对象，
+     * 由门面按 {@code valueType} 统一序列化后落库；{@code id} / {@code version} / 时间列由存储层维护。</p>
      *
-     * @param item 配置条目（至少提供 configName、key、value）
+     * @param command 写命令（至少提供 configName、key、value）
      * @return 新记录主键 id
      * @throws ConstantConfigConflictException {@code config_name} 或 {@code key} 已被占用时抛出
      */
-    Long createConfig(ConstantConfig item);
+    Long createConfig(SaveConfigCommand command);
 
     /**
      * 更新配置（按 {@code key} 定位，不修改 {@code key} 本身）
      *
      * <p>可更新 {@code configName} / {@code value} / {@code valueType} / {@code remark} /
-     * {@code categoryId}；若 {@code configName} 改到与其它记录冲突则抛冲突异常。</p>
+     * {@code categoryId}。更新语义为「非空覆盖」：{@code value} 为 {@code null} 表示不修改该字段
+     * （保留原值）。{@code version} 作为可选期望版本参与乐观并发 CAS，
+     * 与当前版本不一致时抛 {@link ConstantConfigVersionMismatchException}。</p>
      *
-     * @param item 配置条目（必须携带 {@code key} 作为定位键）
+     * @param command 写命令（必须携带 {@code key} 作为定位键）
      * @throws ConstantConfigNotFoundException 目标 key 不存在时抛出
      * @throws ConstantConfigConflictException 新 configName 与其它记录冲突时抛出
      */
-    void updateConfig(ConstantConfig item);
+    void updateConfig(SaveConfigCommand command);
 
     /**
      * 删除配置（按 {@code key} 定位）
@@ -120,40 +131,42 @@ public interface ConstantConfigCenter {
      *
      * @param categoryId 分类ID；{@code null} 查询全部
      * @param keyword 关键字，模糊匹配 key / config_name；{@code null} / 空则不过滤
-     * @return 配置条目列表；无数据时返回空列表（非 null）
+     * @return 配置读视图列表；无数据时返回空列表（非 null）
      */
-    List<ConstantConfig> getConfigList(Long categoryId, String keyword);
+    List<ConfigView> getConfigList(Long categoryId, String keyword);
 
     /**
      * 配置分页查询
      *
      * @param query 分页条件（categoryId / keyword / page / size）
-     * @return 分页结果（含总数）
+     * @return 分页结果（含总数，元素为配置读视图）
      */
-    PageResult<ConstantConfig> getConfigPage(ConfigPageQuery query);
+    PageResult<ConfigView> getConfigPage(ConfigPageQuery query);
 
     // ────────────────────── 分类管理 ──────────────────────
 
     /**
      * 新增分类（自动生成 path / level）
      *
-     * <p>{@code category} 需提供 {@code categoryName}、{@code categoryParentId}、{@code sort}；
+     * <p>{@code categoryName}、{@code categoryParentId}、{@code sort} 由调用方提供；
      * {@code categoryId} / {@code path} / {@code level} 由存储层生成。</p>
      *
-     * @param category 分类
+     * @param command 写命令
      * @return 新分类ID
      * @throws ConstantConfigException 父分类不存在或父级名称重复时抛出
      */
-    Long createCategory(ConstantConfigCategory category);
+    Long createCategory(SaveCategoryCommand command);
 
     /**
      * 更新分类（按 {@code categoryId} 定位）
      *
-     * @param category 分类（必须携带 {@code categoryId}）
+     * <p>更新语义为「非空覆盖」：仅更新调用方提供的非空字段（{@code categoryName} / {@code sort}）。</p>
+     *
+     * @param command 写命令（必须携带 {@code categoryId}）
      * @throws ConstantConfigNotFoundException 目标分类不存在时抛出
      * @throws ConstantConfigException 名称被其它分类占用时抛出
      */
-    void updateCategory(ConstantConfigCategory category);
+    void updateCategory(SaveCategoryCommand command);
 
     /**
      * 删除分类（仅允许删除无子分类的叶子分类）
@@ -169,22 +182,22 @@ public interface ConstantConfigCenter {
      *
      * @param parentId 父分类ID；{@code null} 查询全部
      * @param keyword 关键字，模糊匹配 category_name；{@code null} / 空则不过滤
-     * @return 分类列表；无数据时返回空列表（非 null）
+     * @return 分类读视图列表；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCategory> getCategoryList(Long parentId, String keyword);
+    List<CategoryView> getCategoryList(Long parentId, String keyword);
 
     /**
      * 分类分页查询
      *
      * @param query 分页条件（parentId / keyword / page / size）
-     * @return 分页结果（含总数）
+     * @return 分页结果（含总数，元素为分类读视图）
      */
-    PageResult<ConstantConfigCategory> getCategoryPage(CategoryPageQuery query);
+    PageResult<CategoryView> getCategoryPage(CategoryPageQuery query);
 
     /**
      * 查询全部分类并组装为树形结构
      *
-     * @return 根分类列表（含嵌套 {@code children}）；无数据时返回空列表（非 null）
+     * @return 根分类读视图列表（含嵌套 {@code children}）；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCategory> listCategoryTree();
+    List<CategoryView> listCategoryTree();
 }

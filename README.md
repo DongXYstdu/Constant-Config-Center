@@ -23,7 +23,9 @@
 - **值类型支持**：`STRING` 直接存文本；`LIST` / `MAP` 以 JSON 文本存储，读取用 `TypeReference` 反序列化以保留泛型。
 - **名称反查**：`config_name`（常量配置名称）全局唯一，可用 `getKeyByConfigName` 由名称反查程序取值用的 `key`。
 - **树形分类**：邻接表 + 物化路径，支持分类的创建 / 更新 / 删除（仅叶子）/ 列表 / 分页与树查询。
-- **可扩展**：存储后端 SPI（`ConstantConfigProvider` / `ConstantConfigCategoryProvider`），可整体替换默认 JDBC 实现。
+- **读侧内存缓存**：自研 TTL 缓存（默认开），命中 `getConfig` / `getKeyByConfigName` / `listCategoryTree`，写操作经变更事件自动失效，降低高频读对库的压测。
+- **变更事件**：写成功后发布 `ConfigChangedEvent` / `CategoryChangedEvent`（Spring Event），可跨服务监听，本地缓存即靠同一事件失效。
+- **可扩展**：存储后端 SPI（`ConstantConfigProvider` / `ConstantConfigCategoryProvider`），可整体替换默认 JDBC 实现；缓存 / 失效监听亦可整体替换。
 
 ## 快速开始
 
@@ -51,6 +53,9 @@ spring:
     enabled: true          # 是否启用，默认 true
     table: constant_config_center      # 配置表名，默认 constant_config_center
     category-table: constant_config_category  # 分类表名，默认 constant_config_category
+    cache-enabled: true    # 读侧内存缓存开关，默认 true
+    cache-ttl-seconds: 300 # 缓存 TTL 秒数，默认 300
+    cache-max-size: 1000   # 缓存容量上限（>0 生效，超出停止写入新缓存），默认 1000
 ```
 
 无需配置数据源以外的任何东西：starter 会自动装配 `JdbcTemplate`、存储实现与门面 Bean。
@@ -285,6 +290,41 @@ class ConstantConfigIntegrationTest {
 ---
 
 ## 变更记录
+
+### v1.1 —— 列名去保留字（B8，破坏性）
+
+> 数据库列 `key` / `value` 改为 `config_key` / `config_value`，去掉 MySQL 保留字、不再依赖反引号包裹，提升跨库方言兼容性；SQL 唯一键调整为 `uk_config_key`。
+
+**兼容性影响**：属**破坏性变更**，已部署的存量库不能靠 `CREATE TABLE IF NOT EXISTS` 增量升级。
+
+- 全新部署：直接执行 `sql/constant_config_center.sql`（新版）。
+- 存量升级（如 yudao 集成库）：执行 `sql/migrate_rename_key_value.sql`（重建 + 迁移数据），并注意：
+  - 执行前**备份**，建议停写窗口；
+  - 需按脚本内 **Step 3 核对新旧表行数一致**后再执行 Step 4 的替换。
+- 程序层 `key`（业务键）与门面 API 不变，仅存储列名变化。
+
+---
+
+### v2.0 —— 读侧缓存 + 变更事件（B9）
+
+> 增强项：读加内存缓存、写发变更事件，均为内部增强，**不改变任何对外 SPI / 门面签名**。
+
+**1. 读侧自研 TTL 内存缓存（`cache` 包）**
+- 缓存范围：`getConfig`（含默认值 / 类型化读取）、`getKeyByConfigName`、`listCategoryTree`；列表 / 分页刻意不缓存（失效粒度粗、易脏读）。
+- `ConstantConfigCache`：`ConcurrentHashMap` + 惰性过期清理、容量超限停止写入回源 DB、不做负缓存；`@ConditionalOnMissingBean` 可整体替换。
+- 新增配置 `cache-enabled`（默认 true）/ `cache-ttl-seconds`（300）/ `cache-max-size`（1000）；`cache-enabled=false` 时门面退化为直读 DB。
+
+**2. 变更事件（`event` 包）**
+- `ConfigChangeType`（`CREATED`/`UPDATED`/`DELETED`）+ `ConfigChangedEvent` + `CategoryChangedEvent`，写成功后由门面发布。
+- `CacheInvalidationListener` 本地消费同一事件失效缓存：配置**更新**整体失效双索引，`CREATED`/`DELETED` 按 key（+ 回填名称）精确失效；分类变更整体失效树。
+
+**3. 一致性策略**
+- 事件 ± TTL 双保险：本机写→事件即时失效；跨实例 / 直插 DB→TTL 兜底收敛脏读窗口。
+- `deleteConfig` 先回读 `config_name` 供失效「按名称反查 key」索引。
+
+**回归**：新增 `ConstantConfigCacheTest`（4 项），连同既有集成测试共 27 项全绿。
+
+---
 
 ### v1.0.1 —— 三项 P0 数据一致性修复
 
