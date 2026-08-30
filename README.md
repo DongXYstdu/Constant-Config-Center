@@ -25,7 +25,7 @@
 - **树形分类**：邻接表 + 物化路径，支持分类的创建 / 更新 / 删除（仅叶子）/ 列表 / 分页与树查询。
 - **读侧内存缓存**：自研 TTL 缓存（默认开），命中 `getConfig` / `getKeyByConfigName` / `listCategoryTree`，写操作经变更事件自动失效，降低高频读对库的压测。
 - **变更事件**：写成功后发布 `ConfigChangedEvent` / `CategoryChangedEvent`（Spring Event），可跨服务监听，本地缓存即靠同一事件失效。
-- **可扩展**：存储后端 SPI（`ConstantConfigProvider` / `ConstantConfigCategoryProvider`），可整体替换默认 JDBC 实现；缓存 / 失效监听亦可整体替换。
+- **可扩展**：存储后端 SPI 按“读 / 写”拆分为 `ConfigReadStore` / `ConfigWriteStore` / `CategoryReadStore` / `CategoryWriteStore`，读写侧可整体替换默认 JDBC 实现；缓存 / 失效监听亦可整体替换。
 
 ## 快速开始
 
@@ -74,11 +74,14 @@ public class DemoService {
 
     public void demo() {
         // ── 新增配置（纯新增、冲突抛异常） ──
-        ConstantConfig item = new ConstantConfig();
+        // 1.0.1 起使用写命令契约 ConfigSaveReqVO：value 为单一 Object，
+        // STRING 载入 String，LIST / MAP 载入集合 / 映射，门面按 valueType 统一序列化落库。
+        ConfigSaveReqVO item = new ConfigSaveReqVO();
         item.setConfigName("比功率有效区间");
         item.setKey("iot.power.range");
         item.setValue("[1,50]");                 // STRING：直接载入文本
         item.setValueType(ConstantConfigValueType.STRING);
+        item.setCategoryId(1L);                  // 默认分类
         ccc.createConfig(item);
 
         // ── 读取（不存在返回 null / 默认值） ──
@@ -88,34 +91,39 @@ public class DemoService {
         // ── 名称反查 key ──
         String key = ccc.getKeyByConfigName("比功率有效区间");
 
-        // ── LIST / MAP（以 JSON 文本存储，用 valueObject 传入集合/映射） ──
-        ConstantConfig listItem = new ConstantConfig();
+        // ── LIST / MAP（以 JSON 文本存储，用 setValue 传入集合/映射） ──
+        ConfigSaveReqVO listItem = new ConfigSaveReqVO();
         listItem.setConfigName("允许设备");
         listItem.setKey("iot.allow.devices");
-        listItem.setValueObject(List.of("d1", "d2"));
+        listItem.setValue(List.of("d1", "d2"));
         listItem.setValueType(ConstantConfigValueType.LIST);
+        listItem.setCategoryId(1L);
         ccc.createConfig(listItem);
         List<String> devices = ccc.getConfig("iot.allow.devices", new TypeReference<List<String>>() {});
 
-        // ── 更新（按 key 定位，version 自增；缺失抛 NotFoundException） ──
-        ConstantConfig upd = new ConstantConfig();
+        // ── 更新（按 key 定位，version 自增；缺失抛 NotFoundException；value 为 null 表示不改该字段） ──
+        ConfigSaveReqVO upd = new ConfigSaveReqVO();
         upd.setKey("iot.power.range");
         upd.setValue("[1,60]");
         ccc.updateConfig(upd);
 
-        // ── 列表 / 分页查询 ──
-        List<ConstantConfig> list = ccc.getConfigList(null, "power");   // 关键字过滤
+        // ── 列表 / 分页查询（返回只读视图 ConfigRespVO） ──
+        List<ConfigRespVO> list = ccc.getConfigList(null, "power");   // 关键字过滤
         ConfigPageReqVO q = new ConfigPageReqVO();
         q.setPage(1);
         q.setSize(10);
-        PageResult<ConstantConfig> page = ccc.getConfigPage(q);
+        PageResult<ConfigRespVO> page = ccc.getConfigPage(q);
 
         // ── 删除（按 key 定位；缺失抛 NotFoundException） ──
         ccc.deleteConfig("iot.power.range");
 
-        // ── 分类管理（树形） ──
-        Long sensorId = ccc.createCategory(category("传感器", 1L, 0));
-        List<ConstantConfigCategory> tree = ccc.listCategoryTree();
+        // ── 分类管理（树形，写命令 CategorySaveReqVO / 读视图 CategoryRespVO） ──
+        CategorySaveReqVO cat = new CategorySaveReqVO();
+        cat.setCategoryName("传感器");
+        cat.setCategoryParentId(1L);
+        cat.setSort(0);
+        Long sensorId = ccc.createCategory(cat);
+        List<CategoryRespVO> tree = ccc.listCategoryTree();
         ccc.deleteCategory(sensorId);   // 仅允许删除叶子分类
     }
 }
@@ -152,22 +160,25 @@ try {
 | 读取 | `String getConfig(String key, String defaultValue)` | 带默认值 |
 | 读取 | `<T> T getConfig(String key, TypeReference<T> typeRef)` | 反序列化为强类型（保留泛型） |
 | 反查 | `String getKeyByConfigName(String configName)` | 名称反查 key（`config_name` 全局唯一） |
-| 新增 | `Long createConfig(ConstantConfig item)` | 纯新增，冲突抛异常，返回主键 id |
-| 更新 | `void updateConfig(ConstantConfig item)` | 按 `key` 合并补丁更新，缺失抛 `NotFoundException` |
+| 新增 | `Long createConfig(ConfigSaveReqVO command)` | 纯新增，冲突抛异常，返回主键 id |
+| 更新 | `void updateConfig(ConfigSaveReqVO command)` | 按 `key` 合并补丁更新，缺失抛 `NotFoundException` |
 | 删除 | `void deleteConfig(String key)` | 按 `key` 删除，缺失抛 `NotFoundException` |
-| 列表 | `List<ConstantConfig> getConfigList(Long categoryId, String keyword)` | 按分类 / 关键字过滤 |
-| 分页 | `PageResult<ConstantConfig> getConfigPage(ConfigPageReqVO query)` | 分页查询（含总数） |
+| 列表 | `List<ConfigRespVO> getConfigList(Long categoryId, String keyword)` | 按分类 / 关键字过滤 |
+| 分页 | `PageResult<ConfigRespVO> getConfigPage(ConfigPageReqVO query)` | 分页查询（含总数） |
 
 ### 分类管理
 
 | 类别 | 方法 | 说明 |
 | --- | --- | --- |
-| 新增 | `Long createCategory(ConstantConfigCategory category)` | 自动生成 path / level |
-| 更新 | `void updateCategory(ConstantConfigCategory category)` | 按 `categoryId` 更新 |
+| 新增 | `Long createCategory(CategorySaveReqVO command)` | 自动生成 path / level |
+| 更新 | `void updateCategory(CategorySaveReqVO command)` | 按 `categoryId` 更新 |
 | 删除 | `void deleteCategory(Long categoryId)` | 仅允许删除叶子分类 |
-| 列表 | `List<ConstantConfigCategory> getCategoryList(Long parentId, String keyword)` | 按父ID / 关键字过滤 |
-| 分页 | `PageResult<ConstantConfigCategory> getCategoryPage(CategoryPageReqVO query)` | 分页查询（含总数） |
-| 树 | `List<ConstantConfigCategory> listCategoryTree()` | 全部分类组装为树（含 `children`） |
+| 列表 | `List<CategoryRespVO> getCategoryList(Long parentId, String keyword)` | 按父ID / 关键字过滤 |
+| 分页 | `PageResult<CategoryRespVO> getCategoryPage(CategoryPageReqVO query)` | 分页查询（含总数） |
+| 树 | `List<CategoryRespVO> listCategoryTree()` | 全部分类组装为树（含 `children`） |
+
+> 写命令承载新增 / 更新的入参（`ConfigSaveReqVO` / `CategorySaveReqVO`，`value` 为单一 `Object`），
+> 读视图（`ConfigRespVO` / `CategoryRespVO`）对外只读返回、不含写入辅助字段。
 
 更多细节见 [项目技术文档](../docs/【常量配置中心】-【SpringBoot-Starter动态配置中心】-【v1.0】-项目技术文档.md)。
 
@@ -186,8 +197,8 @@ mvn test
 | # | 测试用例 | 覆盖点 |
 | --- | --- | --- |
 | 1 | 创建 STRING 类型配置 | 新增配置、返回主键、值写入正确 |
-| 2 | 创建 LIST 类型配置（JSON 存储） | `valueObject` 集合写入、JSON 落库、`TypeReference` 读取还原 |
-| 3 | 创建 MAP 类型配置（JSON 存储） | `valueObject` 映射写入、JSON 落库、泛型反序列化还原 |
+| 2 | 创建 LIST 类型配置（JSON 存储） | `setValue(集合)` 写入、JSON 落库、`TypeReference` 读取还原 |
+| 3 | 创建 MAP 类型配置（JSON 存储） | `setValue(映射)` 写入、JSON 落库、泛型反序列化还原 |
 | 4 | 带默认值读取 | `getConfig(key, default)` 命中返回配置、未命中返回默认值 |
 | 5 | 名称反查 key | `getKeyByConfigName` 由唯一 `config_name` 反查 `key` |
 | 6 | 更新配置（按 key 定位） | 合并补丁更新、值变更生效、缺失返回 `null` |
@@ -267,15 +278,24 @@ class ConstantConfigIntegrationTest {
 
     @Test
     void createAndReadConfig() {
-        ConstantConfig item = new ConstantConfig();
+        // 1.0.1 起使用 Command / View 契约（yudao 后缀规约）
+        ConfigSaveReqVO item = new ConfigSaveReqVO();
         item.setConfigName("比功率有效区间");
         item.setKey("iot.power.range");
         item.setValue("[1,50]");
         item.setValueType(ConstantConfigValueType.STRING);
-        // pending...
+        item.setCategoryId(1L); // 默认分类
+
+        Long id = ccc.createConfig(item);       // 返回主键 ID
+        String value = ccc.getConfig("iot.power.range"); // 按 key 读取
+        ccc.deleteConfig("iot.power.range");    // 清理
     }
 }
 ```
+
+> **API 迁移提示（1.0.0 → 1.0.1）**：`ConstantConfig` / `ConstantConfigCategory` / `CategoryPageQuery` / `ConfigPageQuery` 等旧类已移除，改用
+> 写命令 `ConfigSaveReqVO` / `CategorySaveReqVO`、读视图 `ConfigRespVO` / `CategoryRespVO`、分页入参 `ConfigPageReqVO` / `CategoryPageReqVO`（结果 `PageResult`）。
+> 若存量测试 / 业务代码仍引用旧类，升级依赖后会在类加载时报 `NoClassDefFoundError`，需按索引名迁移。
 
 ### 踩坑清单
 
@@ -286,6 +306,8 @@ class ConstantConfigIntegrationTest {
 | `Unknown lifecycle phase .failIfNoSpecifiedTests=false` | 某些 shell 拆分 `-D` 参数带点号 | 给参数加引号 `"-Dsurefire.failIfNoSpecifiedTests=false"` |
 | `父分类不存在 categoryId=1` | 建表时漏执行默认分类 INSERT | 补插 `category_id=1` 默认分类 |
 | `Table 'xxx.constant_config_center' doesn't exist` | 未执行建表脚本 | 执行 [constant_config_center.sql](sql/constant_config_center.sql) |
+| `NoClassDefFoundError: com/constantconfig/center/model/ConstantConfig` | 业务代码/测试仍引用 1.0.0 的旧类，而依赖已升级到 1.0.1（旧类已移除） | 对照本 README「API 迁移提示」改为 `ConfigSaveReqVO` / `ConfigRespVO` 等新契约 |
+| 集成测试 `Tests run: 0` 且不报链接错误 | yudao 依赖版本仍是旧 `1.0.0`，本地 jar 未升级 | 先 `mvn install -DskipTests -Dgpg.skip=true` 装入新版本，并把 BOM 版本改为 `1.0.1` |
 
 ---
 
