@@ -3,6 +3,7 @@ package com.constantconfig.center.cache;
 import com.constantconfig.center.model.entity.ConstantConfigCategoryDO;
 import com.constantconfig.center.model.entity.ConstantConfigDO;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,7 +46,8 @@ public class ConstantConfigCache {
     }
 
     public void putConfigByKey(String key, ConstantConfigDO value) {
-        put(PREFIX_CONFIG_KEY + key, value);
+        // 写入前做防御性拷贝：缓存持有不可变快照，杜绝自定义 Provider 共享可变 DO 被外部篡改污染
+        put(PREFIX_CONFIG_KEY + key, value == null ? null : value.copy());
     }
 
     public ConstantConfigDO getConfigByName(String configName) {
@@ -54,7 +56,7 @@ public class ConstantConfigCache {
     }
 
     public void putConfigByName(String configName, ConstantConfigDO value) {
-        put(PREFIX_CONFIG_NAME + configName, value);
+        put(PREFIX_CONFIG_NAME + configName, value == null ? null : value.copy());
     }
 
     /** 失效某条配置的两个索引（{@code configName} 为 null 时仅失效 key 索引） */
@@ -81,7 +83,15 @@ public class ConstantConfigCache {
     }
 
     public void putCategoryAll(List<ConstantConfigCategoryDO> value) {
-        put(KEY_CATEGORY_ALL, value);
+        // 写入前做防御性拷贝（每个元素逐字段拷贝 + 新列表），避免外部可变列表/对象被篡改污染
+        List<ConstantConfigCategoryDO> snapshot = null;
+        if (value != null) {
+            snapshot = new ArrayList<>(value.size());
+            for (ConstantConfigCategoryDO item : value) {
+                snapshot.add(item.copy());
+            }
+        }
+        put(KEY_CATEGORY_ALL, snapshot);
     }
 
     /** 分类增删改影响层级与树，采用整体失效 */

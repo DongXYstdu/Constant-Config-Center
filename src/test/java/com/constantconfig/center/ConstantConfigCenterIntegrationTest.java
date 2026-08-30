@@ -1,14 +1,14 @@
 package com.constantconfig.center;
 
 import com.constantconfig.center.api.ConstantConfigCenter;
-import com.constantconfig.center.query.CategoryPageQuery;
-import com.constantconfig.center.query.ConfigPageQuery;
+import com.constantconfig.center.query.CategoryPageReqVO;
+import com.constantconfig.center.query.ConfigPageReqVO;
 import com.constantconfig.center.query.PageResult;
 import com.constantconfig.center.model.ConstantConfigValueType;
-import com.constantconfig.center.model.command.SaveCategoryCommand;
-import com.constantconfig.center.model.command.SaveConfigCommand;
-import com.constantconfig.center.model.view.CategoryView;
-import com.constantconfig.center.model.view.ConfigView;
+import com.constantconfig.center.model.command.CategorySaveReqVO;
+import com.constantconfig.center.model.command.ConfigSaveReqVO;
+import com.constantconfig.center.model.view.CategoryRespVO;
+import com.constantconfig.center.model.view.ConfigRespVO;
 import com.constantconfig.center.exception.ConstantConfigConflictException;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.exception.ConstantConfigNotFoundException;
@@ -118,11 +118,45 @@ class ConstantConfigCenterIntegrationTest {
         assertNull(ccc.getConfig("key.b"));
     }
 
+    // ────────────────────── 门面层参数校验（A2） ──────────────────────
+
+    @Test
+    void createConfigWithBlankKeyThrowsSemanticError() {
+        assertThrows(ConstantConfigException.class, () -> ccc.createConfig(item("空键", "  ", "v1")));
+    }
+
+    @Test
+    void createConfigWithBlankNameThrowsSemanticError() {
+        assertThrows(ConstantConfigException.class, () -> ccc.createConfig(item(" ", "key.blank.name", "v1")));
+    }
+
+    @Test
+    void createConfigWithNullValueThrowsSemanticError() {
+        // 列 NOT NULL 本就拒绝，此处改为门面层语义异常而非裸约束异常
+        ConfigSaveReqVO c = item("空值配置", "key.null.value", null);
+        assertThrows(ConstantConfigException.class, () -> ccc.createConfig(c));
+    }
+
+    @Test
+    void createConfigWithNonExistentCategoryThrowsSemanticError() {
+        ConfigSaveReqVO c = item("孤儿分类配置", "key.bad.category", "v1");
+        c.setCategoryId(999999L);
+        assertThrows(ConstantConfigException.class, () -> ccc.createConfig(c));
+    }
+
+    @Test
+    void updateConfigToNonExistentCategoryThrowsSemanticError() {
+        ccc.createConfig(item("原配置", "key.move.category", "v1"));
+        ConfigSaveReqVO c = item("原配置", "key.move.category", "v2");
+        c.setCategoryId(999999L);
+        assertThrows(ConstantConfigException.class, () -> ccc.updateConfig(c));
+    }
+
     // ────────────────────── LIST / MAP 序列化 ──────────────────────
 
     @Test
     void listReadWrite() {
-        SaveConfigCommand listItem = item("允许列表", "iot.allow.list", null);
+        ConfigSaveReqVO listItem = item("允许列表", "iot.allow.list", null);
         listItem.setValue(Arrays.asList("a", "b", "c"));
         listItem.setValueType(ConstantConfigValueType.LIST);
         ccc.createConfig(listItem);
@@ -136,7 +170,7 @@ class ConstantConfigCenterIntegrationTest {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("scale", 0.1);
         map.put("enabled", true);
-        SaveConfigCommand mapItem = item("控制参数", "iot.param", null);
+        ConfigSaveReqVO mapItem = item("控制参数", "iot.param", null);
         mapItem.setValue(map);
         mapItem.setValueType(ConstantConfigValueType.MAP);
         ccc.createConfig(mapItem);
@@ -164,7 +198,7 @@ class ConstantConfigCenterIntegrationTest {
         Long versionBefore = jdbcTemplate.queryForObject(
                 "SELECT version FROM constant_config_center WHERE config_key = ?", Long.class, "iot.pressure.target");
 
-        SaveConfigCommand upd = item("目标压力2", "iot.pressure.target", "0.2");
+        ConfigSaveReqVO upd = item("目标压力2", "iot.pressure.target", "0.2");
         upd.setRemark("调参");
         ccc.updateConfig(upd);
 
@@ -182,7 +216,7 @@ class ConstantConfigCenterIntegrationTest {
                 "UPDATE constant_config_center SET version = version + 1 WHERE config_key = ?", "iot.version.key");
 
         // 用过期的期望版本 0 提交，应被乐观锁拦截
-        SaveConfigCommand stale = item("版本测试", "iot.version.key", "v-later");
+        ConfigSaveReqVO stale = item("版本测试", "iot.version.key", "v-later");
         stale.setVersion(0L);
         ConstantConfigVersionMismatchException ex = assertThrows(
                 ConstantConfigVersionMismatchException.class, () -> ccc.updateConfig(stale));
@@ -199,7 +233,7 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createConfig(item("A", "k1", "v1"));
         ccc.createConfig(item("B", "k2", "v2"));
         // 把 k1 改成已占用的名称 B
-        SaveConfigCommand upd = new SaveConfigCommand();
+        ConfigSaveReqVO upd = new ConfigSaveReqVO();
         upd.setKey("k1");
         upd.setConfigName("B");
         assertThrows(ConstantConfigConflictException.class, () -> ccc.updateConfig(upd));
@@ -207,7 +241,7 @@ class ConstantConfigCenterIntegrationTest {
 
     @Test
     void updateConfigMissingThrowsNotFound() {
-        SaveConfigCommand upd = item("不存在", "no.such.key", "x");
+        ConfigSaveReqVO upd = item("不存在", "no.such.key", "x");
         assertThrows(ConstantConfigNotFoundException.class, () -> ccc.updateConfig(upd));
     }
 
@@ -229,7 +263,7 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createConfig(item("温度下限", "iot.temp.min", "-20"));
 
         // 按关键字（匹配 key）
-        List<ConfigView> list = ccc.getConfigList(null, "press");
+        List<ConfigRespVO> list = ccc.getConfigList(null, "press");
         assertEquals(1, list.size());
         assertEquals("压力上限", list.get(0).getConfigName());
 
@@ -246,16 +280,16 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createConfig(item("k2", "c.k2", "v2"));
         ccc.createConfig(item("k3", "c.k3", "v3"));
 
-        ConfigPageQuery q1 = new ConfigPageQuery();
+        ConfigPageReqVO q1 = new ConfigPageReqVO();
         q1.setPage(1);
         q1.setSize(2);
-        PageResult<ConfigView> p1 = ccc.getConfigPage(q1);
+        PageResult<ConfigRespVO> p1 = ccc.getConfigPage(q1);
         assertEquals(3, p1.getTotal());
         assertEquals(2, p1.getList().size());
         assertEquals(1, p1.getPage());
         assertEquals(2, p1.getSize());
 
-        ConfigPageQuery q2 = new ConfigPageQuery();
+        ConfigPageReqVO q2 = new ConfigPageReqVO();
         q2.setPage(2);
         q2.setSize(2);
         assertEquals(1, ccc.getConfigPage(q2).getList().size());
@@ -263,8 +297,8 @@ class ConstantConfigCenterIntegrationTest {
 
     // ────────────────────── 分类管理（CRUD + 树） ──────────────────────
 
-    private SaveCategoryCommand category(String name, Long parentId, Integer sort) {
-        SaveCategoryCommand category = new SaveCategoryCommand();
+    private CategorySaveReqVO category(String name, Long parentId, Integer sort) {
+        CategorySaveReqVO category = new CategorySaveReqVO();
         category.setCategoryName(name);
         category.setCategoryParentId(parentId);
         category.setSort(sort);
@@ -275,9 +309,9 @@ class ConstantConfigCenterIntegrationTest {
     void createCategoryGeneratesPathAndLevel() {
         Long childId = ccc.createCategory(category("传感器", 1L, 0));
 
-        List<CategoryView> roots = ccc.listCategoryTree();
+        List<CategoryRespVO> roots = ccc.listCategoryTree();
         assertEquals(1, roots.size());
-        List<CategoryView> children = roots.get(0).getChildren();
+        List<CategoryRespVO> children = roots.get(0).getChildren();
         assertEquals(1, children.size());
         assertEquals("传感器", children.get(0).getCategoryName());
         assertEquals("/1/" + childId, children.get(0).getPath());
@@ -287,7 +321,7 @@ class ConstantConfigCenterIntegrationTest {
     @Test
     void updateCategoryRenames() {
         Long id = ccc.createCategory(category("传感器", 1L, 0));
-        SaveCategoryCommand upd = new SaveCategoryCommand();
+        CategorySaveReqVO upd = new CategorySaveReqVO();
         upd.setCategoryId(id);
         upd.setCategoryName("功率计");
         ccc.updateCategory(upd);
@@ -322,7 +356,7 @@ class ConstantConfigCenterIntegrationTest {
     void deleteCategoryWithConfigsThrows() {
         // 分类下挂载配置后，删除该分类应被拒绝（防止配置变孤儿）
         Long categoryId = ccc.createCategory(category("有配置分类", 1L, 0));
-        SaveConfigCommand cfg = item("分类内配置", "key.in.category", "v1");
+        ConfigSaveReqVO cfg = item("分类内配置", "key.in.category", "v1");
         cfg.setCategoryId(categoryId);
         ccc.createConfig(cfg);
         assertThrows(ConstantConfigException.class, () -> ccc.deleteCategory(categoryId));
@@ -341,11 +375,11 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createCategory(category("传感器", 1L, 0));
         ccc.createCategory(category("仪表", 1L, 0));
 
-        CategoryPageQuery query = new CategoryPageQuery();
+        CategoryPageReqVO query = new CategoryPageReqVO();
         query.setParentId(1L);
         query.setPage(1);
         query.setSize(1);
-        PageResult<CategoryView> page = ccc.getCategoryPage(query);
+        PageResult<CategoryRespVO> page = ccc.getCategoryPage(query);
         // 仅默认(1) + 两个子分类，按 parentId=1 过滤后命中 2 条
         assertEquals(2, page.getTotal());
         assertEquals(1, page.getList().size());
@@ -353,8 +387,8 @@ class ConstantConfigCenterIntegrationTest {
 
     // ────────────────────── 工具 ──────────────────────
 
-    private SaveConfigCommand item(String name, String key, Object value) {
-        SaveConfigCommand item = new SaveConfigCommand();
+    private ConfigSaveReqVO item(String name, String key, Object value) {
+        ConfigSaveReqVO item = new ConfigSaveReqVO();
         item.setConfigName(name);
         item.setKey(key);
         item.setValue(value);

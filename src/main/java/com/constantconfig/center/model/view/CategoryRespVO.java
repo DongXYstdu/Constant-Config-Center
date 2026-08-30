@@ -4,11 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 常量配置分类读视图
+ * 常量配置分类响应视图
  *
  * <p>面向调用方的只读返回对象；{@code children} 用于树形展示（不落库）。</p>
  */
-public class CategoryView {
+public class CategoryRespVO {
 
     private Long categoryId;
     private Long categoryParentId;
@@ -16,7 +16,7 @@ public class CategoryView {
     private String path;
     private Integer level;
     private Integer sort;
-    private List<CategoryView> children = new ArrayList<>();
+    private List<CategoryRespVO> children = new ArrayList<>();
 
     public Long getCategoryId() {
         return categoryId;
@@ -66,11 +66,11 @@ public class CategoryView {
         this.sort = sort;
     }
 
-    public List<CategoryView> getChildren() {
+    public List<CategoryRespVO> getChildren() {
         return children;
     }
 
-    public void setChildren(List<CategoryView> children) {
+    public void setChildren(List<CategoryRespVO> children) {
         this.children = children;
     }
 }

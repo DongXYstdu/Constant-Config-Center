@@ -4,6 +4,7 @@ import com.constantconfig.center.model.entity.ConstantConfigDO;
 import com.constantconfig.center.model.ConstantConfigValueType;
 import com.constantconfig.center.spi.ConfigReadStore;
 import com.constantconfig.center.spi.ConfigWriteStore;
+import com.constantconfig.center.spi.jdbc.dialect.SqlDialect;
 import com.constantconfig.center.exception.ConstantConfigConflictException;
 import com.constantconfig.center.exception.ConstantConfigVersionMismatchException;
 import com.constantconfig.center.properties.ConstantConfigProperties;
@@ -35,11 +36,15 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
     private final JdbcTemplate jdbcTemplate;
     private final String table;
     private final long defaultVersion;
+    private final SqlDialect dialect;
 
-    public ConstantConfigJdbcProvider(JdbcTemplate jdbcTemplate, ConstantConfigProperties properties) {
+    public ConstantConfigJdbcProvider(JdbcTemplate jdbcTemplate,
+                                      ConstantConfigProperties properties,
+                                      SqlDialect dialect) {
         this.jdbcTemplate = jdbcTemplate;
         this.table = validateTableName(properties.getTable());
         this.defaultVersion = properties.getDefaultVersion();
+        this.dialect = dialect;
     }
 
     /**
@@ -83,7 +88,7 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
     @Override
     public ConstantConfigDO get(String key) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + table
-                + " WHERE config_key = ? LIMIT 1";
+                + " WHERE config_key = ? " + dialect.firstRowClause();
         List<ConstantConfigDO> items = jdbcTemplate.query(sql, ROW_MAPPER, key);
         return items.isEmpty() ? null : items.get(0);
     }
@@ -91,7 +96,7 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
     @Override
     public ConstantConfigDO getByConfigName(String configName) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + table
-                + " WHERE config_name = ? LIMIT 1";
+                + " WHERE config_name = ? " + dialect.firstRowClause();
         List<ConstantConfigDO> items = jdbcTemplate.query(sql, ROW_MAPPER, configName);
         return items.isEmpty() ? null : items.get(0);
     }
@@ -102,7 +107,8 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
         // 冲突时抛 DuplicateKeyException，此处反查已存在行并转抛 ConflictException（携带主键 id）。
         String insertSql = "INSERT INTO " + table
                 + " (category_id, config_name, config_key, config_value, value_type, version, remark, create_time, update_time) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, " + dialect.timestampExpression() + ", "
+                + dialect.timestampExpression() + ")";
         try {
             KeyHolder keyHolder = new GeneratedKeyHolder();
             jdbcTemplate.update(connection -> {
@@ -128,40 +134,31 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
 
     @Override
     public boolean update(ConstantConfigDO item) {
-        ConstantConfigDO existing = get(item.getKey());
-        if (existing == null) {
-            return false;
-        }
-        // 合并补丁语义：入参为 null 的字段保留原值；key 为定位键，不可变
-        Long categoryId = item.getCategoryId() != null ? item.getCategoryId() : existing.getCategoryId();
-        String configName = item.getConfigName() != null ? item.getConfigName() : existing.getConfigName();
-        String value = item.getValue() != null ? item.getValue() : existing.getValue();
-        ConstantConfigValueType valueType =
-                item.getValueType() != null ? item.getValueType() : existing.getValueType();
-        String remark = item.getRemark() != null ? item.getRemark() : existing.getRemark();
-
-        // configName 若变化，校验其全局唯一（排除自身）
-        if (!configName.equals(existing.getConfigName())) {
-            ConstantConfigDO byName = getByConfigName(configName);
-            if (byName != null) {
-                throw new ConstantConfigConflictException(byName.getId(), "config_name", configName);
-            }
-        }
-
-        // 乐观锁：期望版本 = 调用方显式传入（若提供），否则取当前已读到的版本作保底，
-        // 防止「读旧值合并 → 更新」窗口内被其它并发写入覆盖（TOCTOU）。
-        long expectedVersion = item.getVersion() != null ? item.getVersion() : existing.getVersion();
-
+        // 契约：item 为门面已合并好的完整快照（key 定位 + 期望 version CAS），本层不做「null 补丁合并」。
+        // config_name 冲突由 uk_config_name 唯一键拦截，复现为 ConflictException；0 受影响行区分
+        // 「定位键已不存在」与「版本被并发修改」，分别返回 false 或抛 VersionMismatch。
+        long expectedVersion = item.getVersion() != null ? item.getVersion() : 0L;
         String sql = "UPDATE " + table
                 + " SET category_id = ?, config_name = ?, config_value = ?, value_type = ?, remark = ?, "
-                + "version = version + 1, update_time = NOW() WHERE config_key = ? AND version = ?";
-        int affected = jdbcTemplate.update(
-                sql, categoryId, configName, value, valueType.name(), remark, item.getKey(), expectedVersion);
+                + "version = version + 1, update_time = " + dialect.timestampExpression()
+                + " WHERE config_key = ? AND version = ?";
+        int affected;
+        try {
+            affected = jdbcTemplate.update(
+                    sql, item.getCategoryId(), item.getConfigName(), item.getValue(),
+                    item.getValueType().name(), item.getRemark(), item.getKey(), expectedVersion);
+        } catch (DuplicateKeyException e) {
+            // 新 config_name 与其它记录冲突（uk_config_name）；反查冲突行携带其主键 id
+            ConstantConfigDO byName = getByConfigName(item.getConfigName());
+            Long existingId = byName != null ? byName.getId() : null;
+            throw new ConstantConfigConflictException(existingId, "config_name", item.getConfigName());
+        }
         if (affected == 0) {
-            // 记录刚已被确认存在，故仅可能因版本被并发修改而失配，反查当前版本供调用方重试
             ConstantConfigDO current = get(item.getKey());
-            long actual = current != null ? current.getVersion() : -1L;
-            throw new ConstantConfigVersionMismatchException(item.getKey(), expectedVersion, actual);
+            if (current == null) {
+                return false; // 定位键已在「读快照 → 更新」窗口内被删除
+            }
+            throw new ConstantConfigVersionMismatchException(item.getKey(), expectedVersion, current.getVersion());
         }
         return true;
     }
@@ -186,7 +183,7 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
         StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + table + " WHERE 1 = 1");
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, categoryId, keyword);
-        sql.append(" ORDER BY config_name LIMIT ? OFFSET ?");
+        sql.append(" ORDER BY config_name ").append(dialect.paginateClause());
         args.add(limit);
         args.add(offset);
         return jdbcTemplate.query(sql.toString(), ROW_MAPPER, args.toArray());

@@ -28,17 +28,18 @@ public interface ConfigWriteStore {
     Long create(ConstantConfigDO item);
 
     /**
-     * 更新配置条目（按 {@code key} 定位，更新值相关字段）
+     * 更新配置条目（按 {@code key} 定位，直更密钥相关字段）
      *
-     * <p>可更新 {@code configName} / {@code value} / {@code valueType} / {@code remark} /
-     * {@code categoryId}，不修改 {@code key} 本身；{@code version} 自增并刷新 {@code updateTime}。</p>
+     * <p>输入为<b>门面已合并好的完整快照</b>（{@code categoryId} / {@code configName} / {@code value} /
+     * {@code valueType} / {@code remark} 均已填充最终值，不做「null 保留原值」的补丁合并）；
+     * 本层不修改 {@code key} 本身，{@code version} 自增并刷新 {@code updateTime}。</p>
      *
-     * <p>乐观并发：{@code item.version} 非空时作为期望版本参与 CAS，
-     * 与实际版本不一致则抛 {@link ConstantConfigVersionMismatchException}；为空时以已读取的当前版本
-     * 作保底校验，同样可防「读旧值再更新」窗口内的覆盖竞态。</p>
+     * <p>乐观并发：{@code item.version} 作为期望版本参与 CAS，与实际版本不一致则抛
+     * {@link ConstantConfigVersionMismatchException}。{@code config_name} 与其它记录冲突时抛
+     * {@link ConstantConfigConflictException}（由 DB 唯一键拦截并翻译）。</p>
      *
-     * @param item 配置条目（必须携带 {@code key}）
-     * @return 目标记录是否存在（不存在返回 {@code false}，由门面转抛异常）
+     * @param item 待写入的完整快照（必须携带 {@code key}；{@code version} 为期望版本）
+     * @return 目标记录是否存在（不存在或已被删除返回 {@code false}，由门面转抛异常）
      * @throws ConstantConfigConflictException 新的 {@code config_name} 被其它记录占用时抛出
      * @throws ConstantConfigVersionMismatchException 版本不一致（并发修改）时抛出
      */

@@ -2,14 +2,14 @@ package com.constantconfig.center.model.view;
 
 import com.constantconfig.center.model.ConstantConfigValueType;
 
-import java.time.LocalDateTime;
-
 /**
- * 常量配置读视图
+ * 常量配置响应视图
  *
- * <p>面向调用方的只读返回对象，来自存储 DO 的映射；不含写入辅助字段。</p>
+ * <p>面向调用方的只读返回对象，来自存储 DO 的映射；
+ * 不含存储侧维护的 {@code version} / {@code createTime} / {@code updateTime}。
+ * 乐观并发所需版本由调用方结合业务另行维护，或省略由门面按当前快照版本兜底。</p>
  */
-public class ConfigView {
+public class ConfigRespVO {
 
     private Long id;
     private Long categoryId;
@@ -18,9 +18,6 @@ public class ConfigView {
     private String value;
     private ConstantConfigValueType valueType;
     private String remark;
-    private Long version;
-    private LocalDateTime createTime;
-    private LocalDateTime updateTime;
 
     public Long getId() {
         return id;
@@ -76,29 +73,5 @@ public class ConfigView {
 
     public void setRemark(String remark) {
         this.remark = remark;
-    }
-
-    public Long getVersion() {
-        return version;
-    }
-
-    public void setVersion(Long version) {
-        this.version = version;
-    }
-
-    public LocalDateTime getCreateTime() {
-        return createTime;
-    }
-
-    public void setCreateTime(LocalDateTime createTime) {
-        this.createTime = createTime;
-    }
-
-    public LocalDateTime getUpdateTime() {
-        return updateTime;
-    }
-
-    public void setUpdateTime(LocalDateTime updateTime) {
-        this.updateTime = updateTime;
     }
 }

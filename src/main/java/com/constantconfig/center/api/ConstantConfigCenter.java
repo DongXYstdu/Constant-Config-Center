@@ -1,15 +1,15 @@
 package com.constantconfig.center.api;
 
-import com.constantconfig.center.model.command.SaveCategoryCommand;
-import com.constantconfig.center.model.command.SaveConfigCommand;
-import com.constantconfig.center.model.view.CategoryView;
-import com.constantconfig.center.model.view.ConfigView;
+import com.constantconfig.center.model.command.CategorySaveReqVO;
+import com.constantconfig.center.model.command.ConfigSaveReqVO;
+import com.constantconfig.center.model.view.CategoryRespVO;
+import com.constantconfig.center.model.view.ConfigRespVO;
 import com.constantconfig.center.exception.ConstantConfigConflictException;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.exception.ConstantConfigNotFoundException;
 import com.constantconfig.center.exception.ConstantConfigSerializationException;
-import com.constantconfig.center.query.CategoryPageQuery;
-import com.constantconfig.center.query.ConfigPageQuery;
+import com.constantconfig.center.query.CategoryPageReqVO;
+import com.constantconfig.center.query.ConfigPageReqVO;
 import com.constantconfig.center.query.PageResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 
@@ -22,10 +22,10 @@ import java.util.List;
  * 分类（category）仅用于罗列 / 分页过滤与层级组织。</p>
  *
  * <p><b>三类模型</b>：<ul>
- * <li>写命令 —— {@link SaveConfigCommand} / {@link SaveCategoryCommand}，承载新增 / 更新的入参；
+ * <li>写命令 —— {@link ConfigSaveReqVO} / {@link CategorySaveReqVO}，承载新增 / 更新的入参；
  *     {@code value} 为单一 {@link Object}（STRING 传 {@code String}，LIST / MAP 传集合 / 映射对象），
  *     由门面按 {@code valueType} 统一序列化后落库。</li>
- * <li>读视图 —— {@link ConfigView} / {@link CategoryView}，对外只读返回，不含写入辅助字段。</li>
+ * <li>读视图 —— {@link ConfigRespVO} / {@link CategoryRespVO}，对外只读返回，不含写入辅助字段。</li>
  * <li>业务取值 —— {@link #getConfig(String)} 按存储值类型召回：STRING 直接返回文本，
  *     LIST / MAP 返回 JSON 文本；需要反序列化为强类型时用 {@link #getConfig(String, TypeReference)}。</li>
  * </ul></p>
@@ -102,7 +102,7 @@ public interface ConstantConfigCenter {
      * @return 新记录主键 id
      * @throws ConstantConfigConflictException {@code config_name} 或 {@code key} 已被占用时抛出
      */
-    Long createConfig(SaveConfigCommand command);
+    Long createConfig(ConfigSaveReqVO command);
 
     /**
      * 更新配置（按 {@code key} 定位，不修改 {@code key} 本身）
@@ -116,7 +116,7 @@ public interface ConstantConfigCenter {
      * @throws ConstantConfigNotFoundException 目标 key 不存在时抛出
      * @throws ConstantConfigConflictException 新 configName 与其它记录冲突时抛出
      */
-    void updateConfig(SaveConfigCommand command);
+    void updateConfig(ConfigSaveReqVO command);
 
     /**
      * 删除配置（按 {@code key} 定位）
@@ -133,7 +133,7 @@ public interface ConstantConfigCenter {
      * @param keyword 关键字，模糊匹配 key / config_name；{@code null} / 空则不过滤
      * @return 配置读视图列表；无数据时返回空列表（非 null）
      */
-    List<ConfigView> getConfigList(Long categoryId, String keyword);
+    List<ConfigRespVO> getConfigList(Long categoryId, String keyword);
 
     /**
      * 配置分页查询
@@ -141,7 +141,7 @@ public interface ConstantConfigCenter {
      * @param query 分页条件（categoryId / keyword / page / size）
      * @return 分页结果（含总数，元素为配置读视图）
      */
-    PageResult<ConfigView> getConfigPage(ConfigPageQuery query);
+    PageResult<ConfigRespVO> getConfigPage(ConfigPageReqVO query);
 
     // ────────────────────── 分类管理 ──────────────────────
 
@@ -155,7 +155,7 @@ public interface ConstantConfigCenter {
      * @return 新分类ID
      * @throws ConstantConfigException 父分类不存在或父级名称重复时抛出
      */
-    Long createCategory(SaveCategoryCommand command);
+    Long createCategory(CategorySaveReqVO command);
 
     /**
      * 更新分类（按 {@code categoryId} 定位）
@@ -166,7 +166,7 @@ public interface ConstantConfigCenter {
      * @throws ConstantConfigNotFoundException 目标分类不存在时抛出
      * @throws ConstantConfigException 名称被其它分类占用时抛出
      */
-    void updateCategory(SaveCategoryCommand command);
+    void updateCategory(CategorySaveReqVO command);
 
     /**
      * 删除分类（仅允许删除无子分类的叶子分类）
@@ -184,7 +184,7 @@ public interface ConstantConfigCenter {
      * @param keyword 关键字，模糊匹配 category_name；{@code null} / 空则不过滤
      * @return 分类读视图列表；无数据时返回空列表（非 null）
      */
-    List<CategoryView> getCategoryList(Long parentId, String keyword);
+    List<CategoryRespVO> getCategoryList(Long parentId, String keyword);
 
     /**
      * 分类分页查询
@@ -192,12 +192,12 @@ public interface ConstantConfigCenter {
      * @param query 分页条件（parentId / keyword / page / size）
      * @return 分页结果（含总数，元素为分类读视图）
      */
-    PageResult<CategoryView> getCategoryPage(CategoryPageQuery query);
+    PageResult<CategoryRespVO> getCategoryPage(CategoryPageReqVO query);
 
     /**
      * 查询全部分类并组装为树形结构
      *
      * @return 根分类读视图列表（含嵌套 {@code children}）；无数据时返回空列表（非 null）
      */
-    List<CategoryView> listCategoryTree();
+    List<CategoryRespVO> listCategoryTree();
 }

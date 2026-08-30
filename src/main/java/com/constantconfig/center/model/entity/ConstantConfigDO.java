@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
  * 常量配置存储数据载体（DO/Entity）
  *
  * <p>对应 {@code constant_config_center} 表的一行记录，仅在存储 SPI 与实现间传递，
- * 不代表对外读写契约（写用 {@code SaveConfigCommand}、读用 {@code ConfigView}）。</p>
+ * 不代表对外读写契约（写用 {@code ConfigSaveReqVO}、读用 {@code ConfigRespVO}）。</p>
  */
 public class ConstantConfigDO {
 
@@ -120,5 +120,21 @@ public class ConstantConfigDO {
 
     public void setUpdateTime(LocalDateTime updateTime) {
         this.updateTime = updateTime;
+    }
+
+    /** 逐字段拷贝（供缓存写入前作防御性快照，避免共享可变对象被外部篡改污染） */
+    public ConstantConfigDO copy() {
+        ConstantConfigDO copy = new ConstantConfigDO();
+        copy.id = this.id;
+        copy.categoryId = this.categoryId;
+        copy.configName = this.configName;
+        copy.key = this.key;
+        copy.value = this.value;
+        copy.valueType = this.valueType;
+        copy.version = this.version;
+        copy.remark = this.remark;
+        copy.createTime = this.createTime;
+        copy.updateTime = this.updateTime;
+        return copy;
     }
 }

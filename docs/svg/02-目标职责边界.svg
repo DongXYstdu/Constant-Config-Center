@@ -6,8 +6,8 @@
   <g>
     <rect x="60" y="70" width="300" height="120" rx="8" fill="#eef4ff" stroke="#3b6ee1" stroke-width="2"/>
     <text x="78" y="98" font-size="15" font-weight="bold" fill="#2743c4">写命令 / 读视图（新）</text>
-    <text x="78" y="120" font-size="12" fill="#6b7280">SaveConfigCommand / SaveCategoryCommand</text>
-    <text x="78" y="140" font-size="12" fill="#6b7280">ConfigView / CategoryView（读返回）</text>
+    <text x="78" y="120" font-size="12" fill="#6b7280">ConfigSaveReqVO / CategorySaveReqVO</text>
+    <text x="78" y="140" font-size="12" fill="#6b7280">ConfigRespVO / CategoryRespVO（读返回）</text>
     <text x="78" y="160" font-size="12" fill="#6b7280">不含 version / createTime / children</text>
   </g>
 

@@ -3,16 +3,16 @@ package com.constantconfig.center.model.command;
 import com.constantconfig.center.model.ConstantConfigValueType;
 
 /**
- * 新增 / 更新配置的写命令
+ * 新增 / 更新配置的请求参数（保存入参）
  *
- * <p>承载写操作入参，不含存储侧维护的 {@code id} / {@code version} / 时间列。
+ * <p>承载保存操作入参，不含存储侧维护的 {@code id} / {@code version} / 时间列。
  * {@code value} 采用单一 {@link Object}：STRING 传 {@link String}，LIST / MAP 传集合 / 映射对象，
  * 由门面按 {@code valueType} 统一序列化。</p>
  *
  * <p>更新语义：{@code value} 为 {@code null} 表示不修改该字段（保留原值，由存储层合并补丁）。
  * 其它字段按非空覆盖。</p>
  */
-public class SaveConfigCommand {
+public class ConfigSaveReqVO {
 
     /** 分类ID；{@code null} 时新增默认归属（properties.defaultCategoryId），更新时忽略 */
     private Long categoryId;

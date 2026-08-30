@@ -11,6 +11,9 @@ import com.constantconfig.center.spi.ConfigReadStore;
 import com.constantconfig.center.spi.ConfigWriteStore;
 import com.constantconfig.center.spi.jdbc.ConstantConfigCategoryJdbcProvider;
 import com.constantconfig.center.spi.jdbc.ConstantConfigJdbcProvider;
+import com.constantconfig.center.spi.jdbc.dialect.H2Dialect;
+import com.constantconfig.center.spi.jdbc.dialect.SqlDialect;
+import com.constantconfig.center.spi.jdbc.dialect.SqlDialects;
 import com.constantconfig.center.properties.ConstantConfigProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
@@ -27,6 +30,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.sql.Connection;
+import java.sql.SQLException;
+
 /**
  * 常量配置中心自动装配入口
  *
@@ -37,8 +43,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>通过 {@code spring.constant-config-center.enabled} 控制是否启用（默认启用）。</li>
  *   <li>仅当容器中存在 {@link JdbcTemplate} 时注册 JDBC 默认存储（配置 + 分类）。</li>
  *   <li>读写 SPI 已按 CQRS 拆分为读/写两组接口；默认 JDBC 实现类同时提供读+写，
- *       以单一 Bean 注册并以「整体替换」对外暴露（对接方自定义读或写一侧 Bean 时，
- *       默认 JDBC 存储被抑制，可整体替换默认实现）。</li>
+ *       以单一 Bean 注册并以「整体替换」对外暴露。取舍边界：因读/写绑在同一 Bean，
+ *       对接方仅自定义「读」一侧 Bean 时，默认 JDBC 存储被整体抑制，同时失去默认写侧，
+ *       需自行补全写侧 Bean（ConfigWriteStore/CategoryWriteStore），否则门面装配失败；
+ *       此语义在 B7 已定案，统一走「整体替换」而非读/写独立装配以避免注入歧义。</li>
  *   <li>对接方已自定义 {@link ConstantConfigCenter} Bean 时，跳过默认门面实现。</li>
  *   <li>容器中无 {@link ObjectMapper} 时提供兜底实例，保证开箱即用。</li>
  * </ul>
@@ -51,6 +59,21 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class ConstantConfigAutoConfiguration {
 
     /**
+     * 注册 SQL 方言 Bean：按数据源 {@code DatabaseMetaData} 自动探测（H2 → {@link H2Dialect}，
+     * 其余回落 MySQL）。对接方需覆盖时可自定义 {@code SqlDialect} Bean（此时本默认被抑制）。
+     */
+    @Bean
+    @ConditionalOnBean(JdbcTemplate.class)
+    @ConditionalOnMissingBean(SqlDialect.class)
+    public SqlDialect sqlDialect(JdbcTemplate jdbcTemplate) {
+        try (Connection connection = jdbcTemplate.getDataSource().getConnection()) {
+            return SqlDialects.detect(connection.getMetaData().getDatabaseProductName());
+        } catch (SQLException e) {
+            throw new IllegalStateException("探测数据库方言失败", e);
+        }
+    }
+
+    /**
      * 注册 JDBC 默认配置存储（键值表）：同时实现 {@link ConfigReadStore} + {@link ConfigWriteStore}，
      * 以单一 Bean 提供读写两侧；对接方自定义 ConfigReadStore 时（整体替换）本默认 Bean 被抑制。
      */
@@ -58,8 +81,9 @@ public class ConstantConfigAutoConfiguration {
     @ConditionalOnBean(JdbcTemplate.class)
     @ConditionalOnMissingBean(ConfigReadStore.class)
     public ConstantConfigJdbcProvider constantConfigJdbcProvider(JdbcTemplate jdbcTemplate,
-                                                                 ConstantConfigProperties properties) {
-        return new ConstantConfigJdbcProvider(jdbcTemplate, properties);
+                                                                 ConstantConfigProperties properties,
+                                                                 SqlDialect dialect) {
+        return new ConstantConfigJdbcProvider(jdbcTemplate, properties, dialect);
     }
 
     /**
@@ -73,8 +97,9 @@ public class ConstantConfigAutoConfiguration {
     public ConstantConfigCategoryJdbcProvider constantConfigCategoryJdbcProvider(
             JdbcTemplate jdbcTemplate,
             ConstantConfigProperties properties,
-            TransactionTemplate transactionTemplate) {
-        return new ConstantConfigCategoryJdbcProvider(jdbcTemplate, properties, transactionTemplate);
+            TransactionTemplate transactionTemplate,
+            SqlDialect dialect) {
+        return new ConstantConfigCategoryJdbcProvider(jdbcTemplate, properties, transactionTemplate, dialect);
     }
 
     /**

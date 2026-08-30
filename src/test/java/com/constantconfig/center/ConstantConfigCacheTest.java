@@ -3,8 +3,9 @@ package com.constantconfig.center;
 import com.constantconfig.center.api.ConstantConfigCenter;
 import com.constantconfig.center.cache.ConstantConfigCache;
 import com.constantconfig.center.model.ConstantConfigValueType;
-import com.constantconfig.center.model.command.SaveCategoryCommand;
-import com.constantconfig.center.model.command.SaveConfigCommand;
+import com.constantconfig.center.model.command.CategorySaveReqVO;
+import com.constantconfig.center.model.command.ConfigSaveReqVO;
+import com.constantconfig.center.model.entity.ConstantConfigDO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,8 +44,8 @@ class ConstantConfigCacheTest {
         jdbcTemplate.update("DELETE FROM constant_config_category WHERE category_id != 1");
     }
 
-    private SaveConfigCommand cfg(String name, String key, String value) {
-        SaveConfigCommand c = new SaveConfigCommand();
+    private ConfigSaveReqVO cfg(String name, String key, String value) {
+        ConfigSaveReqVO c = new ConfigSaveReqVO();
         c.setConfigName(name);
         c.setKey(key);
         c.setValue(value);
@@ -86,6 +87,22 @@ class ConstantConfigCacheTest {
     }
 
     @Test
+    void cacheStoresDefensiveCopyIsolatingExternalMutation() {
+        // 直接构造 DO 入缓存，外部篡改原对象不应污染缓存内已存的快照
+        ConstantConfigDO original = new ConstantConfigDO();
+        original.setKey("iso.key");
+        original.setConfigName("隔离配置");
+        original.setValue("v1");
+        cache.putConfigByKey("iso.key", original);
+        cache.putConfigByName("隔离配置", original);
+
+        original.setValue("mutated"); // 篡改原对象
+
+        assertEquals("v1", cache.getConfigByKey("iso.key").getValue());
+        assertEquals("v1", cache.getConfigByName("隔离配置").getValue());
+    }
+
+    @Test
     void getKeyByConfigNamePopulatesAndClearsOnUpdate() {
         ccc.createConfig(cfg("名称A", "ck.cache.name", "v1"));
         assertEquals("ck.cache.name", ccc.getKeyByConfigName("名称A"));
@@ -113,8 +130,8 @@ class ConstantConfigCacheTest {
         assertNotNull(cache.getCategoryAll());
     }
 
-    private SaveCategoryCommand category(String name, Long parentId, Integer sort) {
-        SaveCategoryCommand c = new SaveCategoryCommand();
+    private CategorySaveReqVO category(String name, Long parentId, Integer sort) {
+        CategorySaveReqVO c = new CategorySaveReqVO();
         c.setCategoryName(name);
         c.setCategoryParentId(parentId);
         c.setSort(sort);

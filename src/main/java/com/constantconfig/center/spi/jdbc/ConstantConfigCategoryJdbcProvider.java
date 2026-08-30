@@ -3,8 +3,10 @@ package com.constantconfig.center.spi.jdbc;
 import com.constantconfig.center.model.entity.ConstantConfigCategoryDO;
 import com.constantconfig.center.spi.CategoryReadStore;
 import com.constantconfig.center.spi.CategoryWriteStore;
+import com.constantconfig.center.spi.jdbc.dialect.SqlDialect;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.properties.ConstantConfigProperties;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -30,13 +32,16 @@ public class ConstantConfigCategoryJdbcProvider implements CategoryReadStore, Ca
     private final JdbcTemplate jdbcTemplate;
     private final String categoryTable;
     private final TransactionTemplate transactionTemplate;
+    private final SqlDialect dialect;
 
     public ConstantConfigCategoryJdbcProvider(JdbcTemplate jdbcTemplate,
                                               ConstantConfigProperties properties,
-                                              TransactionTemplate transactionTemplate) {
+                                              TransactionTemplate transactionTemplate,
+                                              SqlDialect dialect) {
         this.jdbcTemplate = jdbcTemplate;
         this.categoryTable = validateTableName(properties.getCategoryTable());
         this.transactionTemplate = transactionTemplate;
+        this.dialect = dialect;
     }
 
     /**
@@ -77,7 +82,7 @@ public class ConstantConfigCategoryJdbcProvider implements CategoryReadStore, Ca
     @Override
     public ConstantConfigCategoryDO getByCategoryName(String categoryName) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + categoryTable
-                + " WHERE category_name = ? LIMIT 1";
+                + " WHERE category_name = ? " + dialect.firstRowClause();
         List<ConstantConfigCategoryDO> categories = jdbcTemplate.query(sql, ROW_MAPPER, categoryName);
         return categories.isEmpty() ? null : categories.get(0);
     }
@@ -171,7 +176,14 @@ public class ConstantConfigCategoryJdbcProvider implements CategoryReadStore, Ca
     @Override
     public boolean delete(Long categoryId) {
         String sql = "DELETE FROM " + categoryTable + " WHERE category_id = ?";
-        return jdbcTemplate.update(sql, categoryId) > 0;
+        try {
+            return jdbcTemplate.update(sql, categoryId) > 0;
+        } catch (DataIntegrityViolationException e) {
+            // 依赖外键 fk_ccc_category_id(ON DELETE RESTRICT) 在 DELETE 时原子兜底：
+            // 分类下仍存在配置时，由数据库拦截，而非应用层「先查再删」的非原子预检
+            throw new ConstantConfigException(
+                    "分类下仍存在配置，无法删除：categoryId=" + categoryId, e);
+        }
     }
 
     @Override
@@ -188,7 +200,7 @@ public class ConstantConfigCategoryJdbcProvider implements CategoryReadStore, Ca
         StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + categoryTable + " WHERE 1 = 1");
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, parentId, keyword);
-        sql.append(" ORDER BY path, sort LIMIT ? OFFSET ?");
+        sql.append(" ORDER BY path, sort ").append(dialect.paginateClause());
         args.add(limit);
         args.add(offset);
         return jdbcTemplate.query(sql.toString(), ROW_MAPPER, args.toArray());

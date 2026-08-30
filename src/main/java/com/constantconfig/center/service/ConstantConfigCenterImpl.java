@@ -4,19 +4,19 @@ import com.constantconfig.center.api.ConstantConfigCenter;
 import com.constantconfig.center.cache.ConstantConfigCache;
 import com.constantconfig.center.model.CategoryTreeAssembler;
 import com.constantconfig.center.model.codec.ValueCodec;
-import com.constantconfig.center.model.command.SaveCategoryCommand;
-import com.constantconfig.center.model.command.SaveConfigCommand;
+import com.constantconfig.center.model.command.CategorySaveReqVO;
+import com.constantconfig.center.model.command.ConfigSaveReqVO;
 import com.constantconfig.center.model.entity.ConstantConfigCategoryDO;
 import com.constantconfig.center.model.entity.ConstantConfigDO;
-import com.constantconfig.center.model.view.CategoryView;
-import com.constantconfig.center.model.view.ConfigView;
+import com.constantconfig.center.model.view.CategoryRespVO;
+import com.constantconfig.center.model.view.ConfigRespVO;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.exception.ConstantConfigNotFoundException;
 import com.constantconfig.center.event.CategoryChangedEvent;
 import com.constantconfig.center.event.ConfigChangeType;
 import com.constantconfig.center.event.ConfigChangedEvent;
-import com.constantconfig.center.query.CategoryPageQuery;
-import com.constantconfig.center.query.ConfigPageQuery;
+import com.constantconfig.center.query.CategoryPageReqVO;
+import com.constantconfig.center.query.ConfigPageReqVO;
 import com.constantconfig.center.query.PageResult;
 import com.constantconfig.center.query.Pagination;
 import com.constantconfig.center.properties.ConstantConfigProperties;
@@ -30,6 +30,7 @@ import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * 常量配置中心门面默认实现
@@ -127,37 +128,69 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
     // ────────────────────── 配置管理 CRUD ──────────────────────
 
     @Override
-    public Long createConfig(SaveConfigCommand command) {
+    public Long createConfig(ConfigSaveReqVO command) {
+        // 门面层统一做非空/存在性校验：把原本落到 DB 的裸约束/外键异常（NOT NULL / FK）前移为语义异常
+        String key = command.getKey();
+        requireNotBlank(key, "key");
+        requireNotBlank(command.getConfigName(), "configName");
+        if (command.getValue() == null) {
+            throw new ConstantConfigException("配置值不能为空：key=" + key);
+        }
+        Long categoryId = command.getCategoryId() != null
+                ? command.getCategoryId() : properties.getDefaultCategoryId();
+        requireCategoryExists(categoryId);
+
         ConstantConfigDO item = new ConstantConfigDO();
-        item.setCategoryId(command.getCategoryId() != null
-                ? command.getCategoryId() : properties.getDefaultCategoryId());
+        item.setCategoryId(categoryId);
         item.setConfigName(command.getConfigName());
-        item.setKey(command.getKey());
+        item.setKey(key);
         item.setValueType(command.getValueType());
         // STRING 直接载入文本；LIST / MAP 先把集合/映射对象序列化为 JSON 文本存储
         item.setValue(valueCodec.encode(command.getValue(), command.getValueType()));
         item.setRemark(command.getRemark());
         Long id = configWrite.create(item);
-        eventPublisher.publishEvent(ConfigChangedEvent.created(this, command.getKey(), command.getConfigName()));
+        eventPublisher.publishEvent(ConfigChangedEvent.created(this, key, command.getConfigName()));
         return id;
     }
 
     @Override
-    public void updateConfig(SaveConfigCommand command) {
-        ConstantConfigDO item = new ConstantConfigDO();
-        item.setKey(command.getKey()); // 定位键，不可变
-        item.setCategoryId(command.getCategoryId());
-        item.setConfigName(command.getConfigName());
-        item.setRemark(command.getRemark());
-        item.setVersion(command.getVersion()); // 乐观并发期望版本（可为空，由存储层取当前版本保底）
+    public void updateConfig(ConfigSaveReqVO command) {
+        // 先读当前快照，在门面层完成「非空覆盖补丁合并」；存储层只接收完整快照做直更 + version CAS，
+        // 不再让存储实现感知"value 为空表示保留原值"这条写业务规则
+        String key = command.getKey();
+        requireNotBlank(key, "key");
+        if (command.getConfigName() != null) {
+            requireNotBlank(command.getConfigName(), "configName");
+        }
+        ConstantConfigDO existing = configRead.get(key);
+        if (existing == null) {
+            throw new ConstantConfigNotFoundException("key", key);
+        }
+        // 显式指定了新的分类时，校验其确实存在（避免落到 DB 外键异常）
+        if (command.getCategoryId() != null && !command.getCategoryId().equals(existing.getCategoryId())) {
+            requireCategoryExists(command.getCategoryId());
+        }
 
-        // 明确提供了新值时，按 valueType 序列化并随更新写入；value 为空表示保留原值
+        ConstantConfigDO snapshot = new ConstantConfigDO();
+        snapshot.setKey(key); // 定位键，不可变
+        snapshot.setCategoryId(command.getCategoryId() != null ? command.getCategoryId() : existing.getCategoryId());
+        snapshot.setConfigName(command.getConfigName() != null ? command.getConfigName() : existing.getConfigName());
+        snapshot.setRemark(command.getRemark() != null ? command.getRemark() : existing.getRemark());
+
+        // 明确提供了新值时按 valueType 序列化；否则保留原值快照
         Object raw = command.getValue();
         if (raw != null) {
-            item.setValue(valueCodec.encode(raw, command.getValueType()));
-            item.setValueType(command.getValueType());
+            snapshot.setValue(valueCodec.encode(raw, command.getValueType()));
+            snapshot.setValueType(command.getValueType());
+        } else {
+            snapshot.setValue(existing.getValue());
+            snapshot.setValueType(existing.getValueType());
         }
-        if (!configWrite.update(item)) {
+
+        // 乐观并发期望版本：显式传入则用之，否则以当前快照版本保底
+        snapshot.setVersion(command.getVersion() != null ? command.getVersion() : existing.getVersion());
+
+        if (!configWrite.update(snapshot)) {
             throw new ConstantConfigNotFoundException("key", command.getKey());
         }
         // 值/名称/分类均可能变化，统一失效双索引（名称不可预判，交由监听整体失效）
@@ -176,30 +209,24 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
     }
 
     @Override
-    public List<ConfigView> getConfigList(Long categoryId, String keyword) {
-        List<ConfigView> views = new ArrayList<>();
-        for (ConstantConfigDO item : configRead.list(categoryId, keyword)) {
-            views.add(toConfigView(item));
-        }
-        return views;
+    public List<ConfigRespVO> getConfigList(Long categoryId, String keyword) {
+        return mapList(configRead.list(categoryId, keyword), this::toConfigRespVO);
     }
 
     @Override
-    public PageResult<ConfigView> getConfigPage(ConfigPageQuery query) {
+    public PageResult<ConfigRespVO> getConfigPage(ConfigPageReqVO query) {
         Pagination pagination = Pagination.of(query.getPage(), query.getSize(), properties.getDefaultPageSize());
         long total = configRead.count(query.getCategoryId(), query.getKeyword());
-        List<ConfigView> views = new ArrayList<>();
-        for (ConstantConfigDO item : configRead.listPage(
-                query.getCategoryId(), query.getKeyword(), pagination.getOffset(), pagination.getSize())) {
-            views.add(toConfigView(item));
-        }
+        List<ConfigRespVO> views = mapList(configRead.listPage(
+                query.getCategoryId(), query.getKeyword(), pagination.getOffset(), pagination.getSize()),
+                this::toConfigRespVO);
         return PageResult.of(views, total, pagination.getPage(), pagination.getSize());
     }
 
     // ────────────────────── 分类管理 ──────────────────────
 
     @Override
-    public Long createCategory(SaveCategoryCommand command) {
+    public Long createCategory(CategorySaveReqVO command) {
         ConstantConfigCategoryDO category = new ConstantConfigCategoryDO();
         category.setCategoryName(command.getCategoryName());
         category.setCategoryParentId(command.getCategoryParentId() == null ? 0L : command.getCategoryParentId());
@@ -210,7 +237,7 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
     }
 
     @Override
-    public void updateCategory(SaveCategoryCommand command) {
+    public void updateCategory(CategorySaveReqVO command) {
         ConstantConfigCategoryDO category = new ConstantConfigCategoryDO();
         category.setCategoryId(command.getCategoryId());
         category.setCategoryName(command.getCategoryName());
@@ -226,41 +253,32 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         if (categoryRead.get(categoryId) == null) {
             throw new ConstantConfigNotFoundException("categoryId", categoryId);
         }
+        // 子分类预检保留：category_parent_id 无自引用外键，无法靠 FK 兜底，只能先查
         if (categoryRead.countChildren(categoryId) > 0) {
             throw new ConstantConfigException("分类存在子分类，无法删除：categoryId=" + categoryId);
         }
-        long configCount = configRead.countByCategory(categoryId);
-        if (configCount > 0) {
-            throw new ConstantConfigException(
-                    "分类下存在 " + configCount + " 条配置，请先清空或迁移后再删除：categoryId=" + categoryId);
-        }
+        // 分类下配置的存在性不再预读，改由外键 fk_ccc_category_id(ON DELETE RESTRICT) 在 DELETE 时原子拦截
         categoryWrite.delete(categoryId);
         eventPublisher.publishEvent(new CategoryChangedEvent(this, categoryId, ConfigChangeType.DELETED));
     }
 
     @Override
-    public List<CategoryView> getCategoryList(Long parentId, String keyword) {
-        List<CategoryView> views = new ArrayList<>();
-        for (ConstantConfigCategoryDO item : categoryRead.list(parentId, keyword)) {
-            views.add(toCategoryView(item));
-        }
-        return views;
+    public List<CategoryRespVO> getCategoryList(Long parentId, String keyword) {
+        return mapList(categoryRead.list(parentId, keyword), this::toCategoryRespVO);
     }
 
     @Override
-    public PageResult<CategoryView> getCategoryPage(CategoryPageQuery query) {
+    public PageResult<CategoryRespVO> getCategoryPage(CategoryPageReqVO query) {
         Pagination pagination = Pagination.of(query.getPage(), query.getSize(), properties.getDefaultPageSize());
         long total = categoryRead.count(query.getParentId(), query.getKeyword());
-        List<CategoryView> views = new ArrayList<>();
-        for (ConstantConfigCategoryDO item : categoryRead.listPage(
-                query.getParentId(), query.getKeyword(), pagination.getOffset(), pagination.getSize())) {
-            views.add(toCategoryView(item));
-        }
+        List<CategoryRespVO> views = mapList(categoryRead.listPage(
+                query.getParentId(), query.getKeyword(), pagination.getOffset(), pagination.getSize()),
+                this::toCategoryRespVO);
         return PageResult.of(views, total, pagination.getPage(), pagination.getSize());
     }
 
     @Override
-    public List<CategoryView> listCategoryTree() {
+    public List<CategoryRespVO> listCategoryTree() {
         List<ConstantConfigCategoryDO> items;
         if (cache != null) {
             List<ConstantConfigCategoryDO> cached = cache.getCategoryAll();
@@ -273,18 +291,33 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         } else {
             items = categoryRead.list(null, null);
         }
-        List<CategoryView> views = new ArrayList<>();
-        for (ConstantConfigCategoryDO item : items) {
-            views.add(toCategoryView(item));
-        }
-        return CategoryTreeAssembler.assemble(views);
+        return CategoryTreeAssembler.assemble(mapList(items, this::toCategoryRespVO));
     }
 
     // ────────────────────── DO → View 映射 ──────────────────────
 
-    /** 配置 DO → 配置读视图 */
-    private ConfigView toConfigView(ConstantConfigDO item) {
-        ConfigView view = new ConfigView();
+    /**
+     * 批量映射辅助：对源列表逐条调用映射器并收集结果，去重各列表/分页入口的「循环 + add + 组装」样板。
+     *
+     * @param source 源列表；为 {@code null} 时返回空列表
+     * @param mapper 单条映射器
+     * @param <S> 源元素类型
+     * @param <T> 目标元素类型
+     */
+    private <S, T> List<T> mapList(List<S> source, Function<S, T> mapper) {
+        if (source == null) {
+            return new ArrayList<>();
+        }
+        List<T> result = new ArrayList<>(source.size());
+        for (S item : source) {
+            result.add(mapper.apply(item));
+        }
+        return result;
+    }
+
+    /** 配置 DO → 配置读视图（不含 version / 时间等存储侧字段） */
+    private ConfigRespVO toConfigRespVO(ConstantConfigDO item) {
+        ConfigRespVO view = new ConfigRespVO();
         view.setId(item.getId());
         view.setCategoryId(item.getCategoryId());
         view.setConfigName(item.getConfigName());
@@ -292,15 +325,12 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         view.setValue(item.getValue());
         view.setValueType(item.getValueType());
         view.setRemark(item.getRemark());
-        view.setVersion(item.getVersion());
-        view.setCreateTime(item.getCreateTime());
-        view.setUpdateTime(item.getUpdateTime());
         return view;
     }
 
     /** 分类 DO → 分类读视图 */
-    private CategoryView toCategoryView(ConstantConfigCategoryDO item) {
-        CategoryView view = new CategoryView();
+    private CategoryRespVO toCategoryRespVO(ConstantConfigCategoryDO item) {
+        CategoryRespVO view = new CategoryRespVO();
         view.setCategoryId(item.getCategoryId());
         view.setCategoryParentId(item.getCategoryParentId());
         view.setCategoryName(item.getCategoryName());
@@ -308,5 +338,21 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         view.setLevel(item.getLevel());
         view.setSort(item.getSort());
         return view;
+    }
+
+    // ────────────────────── 门面层校验辅助 ──────────────────────
+
+    /** 必填字段非空断言：空/纯空白字符串抛语义异常，避免落到 DB 触发裸约束异常 */
+    private void requireNotBlank(String value, String field) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new ConstantConfigException(field + "不能为空");
+        }
+    }
+
+    /** 分类存在性断言：分类必须存在，把外键约束异常前移为语义异常 */
+    private void requireCategoryExists(Long categoryId) {
+        if (categoryRead.get(categoryId) == null) {
+            throw new ConstantConfigException("分类不存在：categoryId=" + categoryId);
+        }
     }
 }

@@ -105,7 +105,7 @@ public class DemoService {
 
         // ── 列表 / 分页查询 ──
         List<ConstantConfig> list = ccc.getConfigList(null, "power");   // 关键字过滤
-        ConfigPageQuery q = new ConfigPageQuery();
+        ConfigPageReqVO q = new ConfigPageReqVO();
         q.setPage(1);
         q.setSize(10);
         PageResult<ConstantConfig> page = ccc.getConfigPage(q);
@@ -156,7 +156,7 @@ try {
 | 更新 | `void updateConfig(ConstantConfig item)` | 按 `key` 合并补丁更新，缺失抛 `NotFoundException` |
 | 删除 | `void deleteConfig(String key)` | 按 `key` 删除，缺失抛 `NotFoundException` |
 | 列表 | `List<ConstantConfig> getConfigList(Long categoryId, String keyword)` | 按分类 / 关键字过滤 |
-| 分页 | `PageResult<ConstantConfig> getConfigPage(ConfigPageQuery query)` | 分页查询（含总数） |
+| 分页 | `PageResult<ConstantConfig> getConfigPage(ConfigPageReqVO query)` | 分页查询（含总数） |
 
 ### 分类管理
 
@@ -166,7 +166,7 @@ try {
 | 更新 | `void updateCategory(ConstantConfigCategory category)` | 按 `categoryId` 更新 |
 | 删除 | `void deleteCategory(Long categoryId)` | 仅允许删除叶子分类 |
 | 列表 | `List<ConstantConfigCategory> getCategoryList(Long parentId, String keyword)` | 按父ID / 关键字过滤 |
-| 分页 | `PageResult<ConstantConfigCategory> getCategoryPage(CategoryPageQuery query)` | 分页查询（含总数） |
+| 分页 | `PageResult<ConstantConfigCategory> getCategoryPage(CategoryPageReqVO query)` | 分页查询（含总数） |
 | 树 | `List<ConstantConfigCategory> listCategoryTree()` | 全部分类组装为树（含 `children`） |
 
 更多细节见 [项目技术文档](../docs/【常量配置中心】-【SpringBoot-Starter动态配置中心】-【v1.0】-项目技术文档.md)。
@@ -290,6 +290,61 @@ class ConstantConfigIntegrationTest {
 ---
 
 ## 变更记录
+
+### v2.3 —— 命名规约对齐 + 方言抽象 + 响应字段收敛（内部重构）
+
+> 内部重构，**不改变任何对外 SPI / 门面行为**；其中 A3/D1/E 沿用既有「整体替换」装配契约，回归 33 项全绿（缓存 5 + 集成 28）。
+
+**1. DT 层命名规约对齐 yudao（后缀规约）**
+- 实体：`ConstantConfigDO` / `ConstantConfigCategoryDO`（DO 后缀，保持）。
+- 查询 / 保存入参：`XxxReqVO` —— `ConfigPageReqVO`、`CategoryPageReqVO`、`ConfigSaveReqVO`、`CategorySaveReqVO`。
+- 响应：`XxxRespVO` —— `ConfigRespVO`、`CategoryRespVO`。
+- 旧 `SaveConfigCommand` / `ConfigView` / `ConfigPageQuery` 等类名及 README / 方案文档 / SVG 中的引用已全局同步清理。
+
+**2. D1 跨库方言抽象**
+- 新增 `SqlDialect` 接口（时间戳表达式 + 分页占位 + 单条取数）与 `MysqlDialect` / `H2Dialect` 两个默认实现、及按 `DatabaseMetaData` 探测的 `SqlDialects.detect`。
+- 两个 JDBC Provider 的 `NOW()`、`LIMIT ? OFFSET ?`、`LIMIT 1` 全部改由方言提供；装配类注册 `SqlDialect` Bean（`@ConditionalOnMissingBean`，可被对接方覆盖）。B8 已消除反引号，本批收敛剩余方言点。
+
+**3. E 响应字段收敛 + 映射去重**
+- `ConfigRespVO` 移除存储侧 `version` / `createTime` / `updateTime`（对齐 B6「响应剥掉存储字段」）；`updateConfig` 的乐观锁版本省略时由门面按当前快照版本兜底，行为不变。
+- 门面抽取 `mapList(List<S>, Function<S,T>)`，去重 `getConfigList` / `getConfigPage` / `getCategoryList` / `getCategoryPage` / `listCategoryTree` 5 处「循环 + add + 组装」样板。
+
+**4. A3 整体替换装配取舍说明**
+- 默认 JDBC Provider 读/写绑定为单一 Bean，以 `@ConditionalOnMissingBean(ReadStore)` 抑制。取舍边界已写入装配类 javadoc：仅替换「读」一侧会连带失去默认「写」侧，需同时补全写侧 Bean，否则门面装配失败；统一定案走「整体替换」避免读/写独立装配的注入歧义。
+
+---
+
+### v2.2 —— 校验收敛 + 缓存防御性拷贝 + 删除原子化（内部重构）
+
+> 内部重构，**不改变任何对外 SPI / 门面签名**，回归 33 项全绿（缓存 5 + 集成 28）。
+
+**1. 门面层校验收敛（A2）**
+- `createConfig`：新增 `key` / `configName` 非空非白、`value` 非空断言；解析出的 `categoryId` 与显式传入的分类做「存在性」校验。
+- `updateConfig`：`key` 非空断言；显式给出的新 `configName` 非空校验；显式迁移到新分类时校验其存在。
+- 效果：把原本落到 DB 的裸 `NOT NULL` / 外键异常，前移为 `ConstantConfigException` 语义异常。
+
+**2. 缓存防御性拷贝（B1）**
+- `ConstantConfigCache` 的 `put*` 改为先逐字段拷贝 DO / 列表再入缓存，杜绝自定义 Provider 共享可变对象被外部篡改污染缓存；读取路径不加拷贝、不增热路径开销。
+
+**3. 删除分类原子化（B2）**
+- `deleteCategory` 去掉 `countByCategory` 预读；分类下配置的存在性改由外键 `fk_ccc_category_id(ON DELETE RESTRICT)` 在 DELETE 时原子拦截，`DataIntegrityViolationException → ConstantConfigException`。
+- 子分类预检保留（`category_parent_id` 无自引用外键，无法靠 FK 兜底，残余竞态极小）。
+
+---
+
+### v2.1 —— 职责收窄：补丁合并上移门面 + 分页默认值收敛（内部重构）
+
+> 内部重构，**不改变任何对外 SPI / 门面签名与行为**，回归 27 项全绿。
+
+**1. `updateConfig` 补丁合并规则上移门面**
+- 原实现：`config_name` / `categoryId` / `value` / `valueType` / `remark` 的「null 保留原值」合并逻辑写在 JDBC Provider（存储层感知写业务规则），且每次更新先读后写（2 查）。
+- 现实现：门面先读当前快照，完成「非空覆盖合并」后以**完整快照**交给写 SPI；存储层单条 `UPDATE ... WHERE config_key=? AND version=?` 直更 + 版本 CAS。`config_name` 冲突改由 DB 唯一键 `uk_config_name` 拦截并翻译为 `ConstantConfigConflictException`。
+- 行为保持：更新改值+版本自增、过期版本抛 `ConstantConfigVersionMismatchException`、缺失抛 `NotFoundException`、改名冲突均不变。
+
+**2. 分页默认值收敛 `size`**
+- `ConfigPageReqVO` / `CategoryPageReqVO` 的 `size` 默认由硬编码 `10` 改为 `0`（未设置），由门面 `Pagination.of` 统一按 `spring.constant-config-center.default-page-size`（默认 10）兜底，消除「属性默认 vs query 默认」双漂移点。
+
+---
 
 ### v1.1 —— 列名去保留字（B8，破坏性）
 

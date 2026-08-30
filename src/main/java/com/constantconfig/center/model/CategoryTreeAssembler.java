@@ -1,6 +1,6 @@
 package com.constantconfig.center.model;
 
-import com.constantconfig.center.model.view.CategoryView;
+import com.constantconfig.center.model.view.CategoryRespVO;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,17 +26,17 @@ public final class CategoryTreeAssembler {
      * @param all 平铺分类读视图列表（可能为空）
      * @return 根分类列表（其 {@code children} 已按层级挂好），保持输入顺序
      */
-    public static List<CategoryView> assemble(List<CategoryView> all) {
+    public static List<CategoryRespVO> assemble(List<CategoryRespVO> all) {
         if (all == null || all.isEmpty()) {
             return new ArrayList<>();
         }
-        Map<Long, CategoryView> byId = new LinkedHashMap<>(all.size());
-        for (CategoryView category : all) {
+        Map<Long, CategoryRespVO> byId = new LinkedHashMap<>(all.size());
+        for (CategoryRespVO category : all) {
             byId.put(category.getCategoryId(), category);
         }
-        List<CategoryView> roots = new ArrayList<>();
-        for (CategoryView category : all) {
-            CategoryView parent = byId.get(category.getCategoryParentId());
+        List<CategoryRespVO> roots = new ArrayList<>();
+        for (CategoryRespVO category : all) {
+            CategoryRespVO parent = byId.get(category.getCategoryParentId());
             if (parent != null) {
                 parent.getChildren().add(category);
             } else {

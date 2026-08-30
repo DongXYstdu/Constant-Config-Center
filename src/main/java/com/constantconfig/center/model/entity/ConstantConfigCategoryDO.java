@@ -5,7 +5,7 @@ package com.constantconfig.center.model.entity;
  *
  * <p>对应 {@code constant_config_category} 表的一行记录，仅在存储 SPI 与实现间传递。
  * 采用邻接表（{@code categoryParentId}）+ 物化路径（{@code path}）冗余结构；
- * 树的 {@code children} 由读视图 {@code CategoryView} 承载，不在 DO 上。</p>
+ * 树的 {@code children} 由读视图 {@code CategoryRespVO} 承载，不在 DO 上。</p>
  */
 public class ConstantConfigCategoryDO {
 
@@ -73,5 +73,17 @@ public class ConstantConfigCategoryDO {
 
     public void setSort(Integer sort) {
         this.sort = sort;
+    }
+
+    /** 逐字段拷贝（供缓存写入前作防御性快照，避免共享可变对象被外部篡改污染） */
+    public ConstantConfigCategoryDO copy() {
+        ConstantConfigCategoryDO copy = new ConstantConfigCategoryDO();
+        copy.categoryId = this.categoryId;
+        copy.categoryParentId = this.categoryParentId;
+        copy.categoryName = this.categoryName;
+        copy.path = this.path;
+        copy.level = this.level;
+        copy.sort = this.sort;
+        return copy;
     }
 }
