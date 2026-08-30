@@ -1,9 +1,9 @@
-package com.constantconfig.center.provider;
+package com.constantconfig.center.spi.jdbc;
 
-import com.constantconfig.center.core.ConstantConfigCenterCategory;
-import com.constantconfig.center.core.ConstantConfigCenterCategoryProvider;
-import com.constantconfig.center.core.ConstantConfigCenterException;
-import com.constantconfig.center.properties.ConstantConfigCenterProperties;
+import com.constantconfig.center.model.ConstantConfigCategory;
+import com.constantconfig.center.spi.ConstantConfigCategoryProvider;
+import com.constantconfig.center.exception.ConstantConfigException;
+import com.constantconfig.center.properties.ConstantConfigProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -18,24 +18,24 @@ import java.util.List;
  * 常量配置分类 JDBC 默认存储实现（内建）
  *
  * <p>基于 {@link JdbcTemplate} 直查 {@code constant_config_category} 表，无缓存。
- * 表名取自 {@link ConstantConfigCenterProperties#getCategoryTable()}，可自定义。</p>
+ * 表名取自 {@link ConstantConfigProperties#getCategoryTable()}，可自定义。</p>
  *
  * <p>新增分类时在本层完成 {@code path} / {@code level} 的生成与回填：先插入拿到自增
  * {@code category_id}，再按 父分类path + "/" + 自身ID 回填 {@code path}。</p>
  */
-public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigCenterCategoryProvider {
+public class ConstantConfigCategoryJdbcProvider implements ConstantConfigCategoryProvider {
 
     private final JdbcTemplate jdbcTemplate;
     private final String categoryTable;
 
-    public ConstantConfigCenterCategoryJdbcProvider(JdbcTemplate jdbcTemplate, ConstantConfigCenterProperties properties) {
+    public ConstantConfigCategoryJdbcProvider(JdbcTemplate jdbcTemplate, ConstantConfigProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
         this.categoryTable = properties.getCategoryTable();
     }
 
     /** 结果集 → 分类模型 */
-    private static final RowMapper<ConstantConfigCenterCategory> ROW_MAPPER = (rs, rowNum) -> {
-        ConstantConfigCenterCategory category = new ConstantConfigCenterCategory();
+    private static final RowMapper<ConstantConfigCategory> ROW_MAPPER = (rs, rowNum) -> {
+        ConstantConfigCategory category = new ConstantConfigCategory();
         category.setCategoryId(rs.getLong("category_id"));
         category.setCategoryParentId(rs.getLong("category_parent_id"));
         category.setCategoryName(rs.getString("category_name"));
@@ -50,23 +50,23 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
             "category_id, category_parent_id, category_name, path, level, sort";
 
     @Override
-    public ConstantConfigCenterCategory get(Long categoryId) {
+    public ConstantConfigCategory get(Long categoryId) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + categoryTable
                 + " WHERE category_id = ?";
-        List<ConstantConfigCenterCategory> categories = jdbcTemplate.query(sql, ROW_MAPPER, categoryId);
+        List<ConstantConfigCategory> categories = jdbcTemplate.query(sql, ROW_MAPPER, categoryId);
         return categories.isEmpty() ? null : categories.get(0);
     }
 
     @Override
-    public ConstantConfigCenterCategory getByCategoryName(String categoryName) {
+    public ConstantConfigCategory getByCategoryName(String categoryName) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + categoryTable
                 + " WHERE category_name = ? LIMIT 1";
-        List<ConstantConfigCenterCategory> categories = jdbcTemplate.query(sql, ROW_MAPPER, categoryName);
+        List<ConstantConfigCategory> categories = jdbcTemplate.query(sql, ROW_MAPPER, categoryName);
         return categories.isEmpty() ? null : categories.get(0);
     }
 
     @Override
-    public Long create(ConstantConfigCenterCategory category) {
+    public Long create(ConstantConfigCategory category) {
         if (category.getCategoryId() != null) {
             throw new IllegalArgumentException("分类更新请使用 update，此处仅允许新增分类");
         }
@@ -75,7 +75,7 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
             throw new IllegalArgumentException("分类名称不能为空");
         }
         if (getByCategoryName(categoryName.trim()) != null) {
-            throw new ConstantConfigCenterException("分类名称已存在：" + categoryName.trim());
+            throw new ConstantConfigException("分类名称已存在：" + categoryName.trim());
         }
 
         Long parentId = category.getCategoryParentId() == null ? 0L : category.getCategoryParentId();
@@ -88,9 +88,9 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
             level = 1;
             parentPath = "";
         } else {
-            ConstantConfigCenterCategory parent = get(parentId);
+            ConstantConfigCategory parent = get(parentId);
             if (parent == null) {
-                throw new ConstantConfigCenterException("父分类不存在：categoryId=" + parentId);
+                throw new ConstantConfigException("父分类不存在：categoryId=" + parentId);
             }
             level = parent.getLevel() + 1;
             parentPath = parent.getPath();
@@ -122,11 +122,11 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
     }
 
     @Override
-    public boolean update(ConstantConfigCenterCategory category) {
+    public boolean update(ConstantConfigCategory category) {
         if (category.getCategoryId() == null) {
             throw new IllegalArgumentException("分类ID不能为空");
         }
-        ConstantConfigCenterCategory existing = get(category.getCategoryId());
+        ConstantConfigCategory existing = get(category.getCategoryId());
         if (existing == null) {
             return false;
         }
@@ -135,9 +135,9 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
             throw new IllegalArgumentException("分类名称不能为空");
         }
         if (name != null && !name.trim().equals(existing.getCategoryName())) {
-            ConstantConfigCenterCategory byName = getByCategoryName(name.trim());
+            ConstantConfigCategory byName = getByCategoryName(name.trim());
             if (byName != null) {
-                throw new ConstantConfigCenterException("分类名称已存在：" + name.trim());
+                throw new ConstantConfigException("分类名称已存在：" + name.trim());
             }
         }
         String finalName = name != null ? name.trim() : existing.getCategoryName();
@@ -155,7 +155,7 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
     }
 
     @Override
-    public List<ConstantConfigCenterCategory> list(Long parentId, String keyword) {
+    public List<ConstantConfigCategory> list(Long parentId, String keyword) {
         StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + categoryTable + " WHERE 1 = 1");
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, parentId, keyword);
@@ -164,7 +164,7 @@ public class ConstantConfigCenterCategoryJdbcProvider implements ConstantConfigC
     }
 
     @Override
-    public List<ConstantConfigCenterCategory> listPage(Long parentId, String keyword, int offset, int limit) {
+    public List<ConstantConfigCategory> listPage(Long parentId, String keyword, int offset, int limit) {
         StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + categoryTable + " WHERE 1 = 1");
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, parentId, keyword);

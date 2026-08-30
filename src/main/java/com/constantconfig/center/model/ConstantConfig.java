@@ -1,16 +1,16 @@
-package com.constantconfig.center.core;
+package com.constantconfig.center.model;
 
 import java.time.LocalDateTime;
 
 /**
- * 常量配置条目模型
+ * 常量配置实体
  *
  * <p>对应 {@code constant_config_center} 表的一行记录，是 Provider 与数据库之间的数据载体。</p>
  *
  * <p>现数据形态为单值 String（{@code value}）；{@code valueType} 预留 LIST / MAP 场景，
  * 后续取值时按类型做 JSON 反序列化。</p>
  */
-public class ConstantConfigCenterItem {
+public class ConstantConfig {
 
     /** 主键 */
     private Long id;
@@ -31,7 +31,7 @@ public class ConstantConfigCenterItem {
     private Object valueObject;
 
     /** 值类型，默认 STRING */
-    private ConstantConfigCenterValueType valueType = ConstantConfigCenterValueType.STRING;
+    private ConstantConfigValueType valueType = ConstantConfigValueType.STRING;
 
     /** 版本号，用于乐观并发与变更识别 */
     private Long version = 0L;
@@ -93,11 +93,11 @@ public class ConstantConfigCenterItem {
         this.valueObject = valueObject;
     }
 
-    public ConstantConfigCenterValueType getValueType() {
+    public ConstantConfigValueType getValueType() {
         return valueType;
     }
 
-    public void setValueType(ConstantConfigCenterValueType valueType) {
+    public void setValueType(ConstantConfigValueType valueType) {
         this.valueType = valueType;
     }
 

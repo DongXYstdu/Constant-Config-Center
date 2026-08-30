@@ -1,10 +1,10 @@
-package com.constantconfig.center.provider;
+package com.constantconfig.center.spi.jdbc;
 
-import com.constantconfig.center.core.ConstantConfigCenterConflictException;
-import com.constantconfig.center.core.ConstantConfigCenterItem;
-import com.constantconfig.center.core.ConstantConfigCenterProvider;
-import com.constantconfig.center.core.ConstantConfigCenterValueType;
-import com.constantconfig.center.properties.ConstantConfigCenterProperties;
+import com.constantconfig.center.model.ConstantConfig;
+import com.constantconfig.center.model.ConstantConfigValueType;
+import com.constantconfig.center.spi.ConstantConfigProvider;
+import com.constantconfig.center.exception.ConstantConfigConflictException;
+import com.constantconfig.center.properties.ConstantConfigProperties;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -18,35 +18,35 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 常量配置中心 JDBC 默认存储实现（内建）
+ * 常量配置 JDBC 默认存储实现（内建）
  *
  * <p>基于 {@link JdbcTemplate} 直查 {@code constant_config_center} 表，无缓存。
- * 表名取自 {@link ConstantConfigCenterProperties#getTable()}，可自定义。</p>
+ * 表名取自 {@link ConstantConfigProperties#getTable()}，可自定义。</p>
  *
  * <p>注意：{@code key} 是 MySQL 保留字，所有 SQL 中列名统一加反引号 {@code `key`} 包裹；
  * {@code value} 是 H2 保留字（VALUE），同样反引号 {@code `value`} 包裹，以保证 MySQL / H2 双库可跑。</p>
  *
  * <p>{@code key} 全局唯一，本实现以 {@code key} 作为读写删的定位键，不再使用 categoryId 定位。</p>
  */
-public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterProvider {
+public class ConstantConfigJdbcProvider implements ConstantConfigProvider {
 
     private final JdbcTemplate jdbcTemplate;
     private final String table;
 
-    public ConstantConfigCenterJdbcProvider(JdbcTemplate jdbcTemplate, ConstantConfigCenterProperties properties) {
+    public ConstantConfigJdbcProvider(JdbcTemplate jdbcTemplate, ConstantConfigProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
         this.table = properties.getTable();
     }
 
     /** 结果集 → 配置条目模型 */
-    private static final RowMapper<ConstantConfigCenterItem> ROW_MAPPER = (rs, rowNum) -> {
-        ConstantConfigCenterItem item = new ConstantConfigCenterItem();
+    private static final RowMapper<ConstantConfig> ROW_MAPPER = (rs, rowNum) -> {
+        ConstantConfig item = new ConstantConfig();
         item.setId(rs.getLong("id"));
         item.setCategoryId(rs.getLong("category_id"));
         item.setConfigName(rs.getString("config_name"));
         item.setKey(rs.getString("key"));
         item.setValue(rs.getString("value"));
-        item.setValueType(ConstantConfigCenterValueType.of(rs.getString("value_type")));
+        item.setValueType(ConstantConfigValueType.of(rs.getString("value_type")));
         item.setVersion(rs.getLong("version"));
         item.setRemark(rs.getString("remark"));
 
@@ -66,23 +66,23 @@ public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterPro
             "id, category_id, config_name, `key`, `value`, value_type, version, remark, create_time, update_time";
 
     @Override
-    public ConstantConfigCenterItem get(String key) {
+    public ConstantConfig get(String key) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + table
                 + " WHERE `key` = ? LIMIT 1";
-        List<ConstantConfigCenterItem> items = jdbcTemplate.query(sql, ROW_MAPPER, key);
+        List<ConstantConfig> items = jdbcTemplate.query(sql, ROW_MAPPER, key);
         return items.isEmpty() ? null : items.get(0);
     }
 
     @Override
-    public ConstantConfigCenterItem getByConfigName(String configName) {
+    public ConstantConfig getByConfigName(String configName) {
         String sql = "SELECT " + SELECT_COLUMNS + " FROM " + table
                 + " WHERE config_name = ? LIMIT 1";
-        List<ConstantConfigCenterItem> items = jdbcTemplate.query(sql, ROW_MAPPER, configName);
+        List<ConstantConfig> items = jdbcTemplate.query(sql, ROW_MAPPER, configName);
         return items.isEmpty() ? null : items.get(0);
     }
 
     @Override
-    public Long create(ConstantConfigCenterItem item) {
+    public Long create(ConstantConfig item) {
         // 纯 INSERT（不做静默覆盖）：config_name（uk_config_key）或 key（uk_key）任一全局唯一键
         // 冲突时抛 DuplicateKeyException，此处反查已存在行并转抛 ConflictException（携带主键 id）。
         String insertSql = "INSERT INTO " + table
@@ -111,8 +111,8 @@ public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterPro
     }
 
     @Override
-    public boolean update(ConstantConfigCenterItem item) {
-        ConstantConfigCenterItem existing = get(item.getKey());
+    public boolean update(ConstantConfig item) {
+        ConstantConfig existing = get(item.getKey());
         if (existing == null) {
             return false;
         }
@@ -120,15 +120,15 @@ public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterPro
         Long categoryId = item.getCategoryId() != null ? item.getCategoryId() : existing.getCategoryId();
         String configName = item.getConfigName() != null ? item.getConfigName() : existing.getConfigName();
         String value = item.getValue() != null ? item.getValue() : existing.getValue();
-        ConstantConfigCenterValueType valueType =
+        ConstantConfigValueType valueType =
                 item.getValueType() != null ? item.getValueType() : existing.getValueType();
         String remark = item.getRemark() != null ? item.getRemark() : existing.getRemark();
 
         // configName 若变化，校验其全局唯一（排除自身）
         if (!configName.equals(existing.getConfigName())) {
-            ConstantConfigCenterItem byName = getByConfigName(configName);
+            ConstantConfig byName = getByConfigName(configName);
             if (byName != null) {
-                throw new ConstantConfigCenterConflictException(byName.getId(), "config_name", configName);
+                throw new ConstantConfigConflictException(byName.getId(), "config_name", configName);
             }
         }
 
@@ -146,7 +146,7 @@ public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterPro
     }
 
     @Override
-    public List<ConstantConfigCenterItem> list(Long categoryId, String keyword) {
+    public List<ConstantConfig> list(Long categoryId, String keyword) {
         StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + table + " WHERE 1 = 1");
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, categoryId, keyword);
@@ -155,7 +155,7 @@ public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterPro
     }
 
     @Override
-    public List<ConstantConfigCenterItem> listPage(Long categoryId, String keyword, int offset, int limit) {
+    public List<ConstantConfig> listPage(Long categoryId, String keyword, int offset, int limit) {
         StringBuilder sql = new StringBuilder("SELECT " + SELECT_COLUMNS + " FROM " + table + " WHERE 1 = 1");
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, categoryId, keyword);
@@ -189,22 +189,22 @@ public class ConstantConfigCenterJdbcProvider implements ConstantConfigCenterPro
     }
 
     /**
-     * 反查冲突来源并构造 {@link ConstantConfigCenterConflictException}
+     * 反查冲突来源并构造 {@link ConstantConfigConflictException}
      *
      * <p>优先判定 {@code config_name} 冲突；若名称未命中再判定 {@code key} 冲突。
      * 极端并发下（冲突行已被删除）反查不到时，退化为回抛原唯一键冲突异常。</p>
      */
-    private ConstantConfigCenterConflictException conflictException(ConstantConfigCenterItem item) {
-        ConstantConfigCenterItem byName = getByConfigName(item.getConfigName());
+    private ConstantConfigConflictException conflictException(ConstantConfig item) {
+        ConstantConfig byName = getByConfigName(item.getConfigName());
         if (byName != null) {
-            return new ConstantConfigCenterConflictException(
+            return new ConstantConfigConflictException(
                     byName.getId(), "config_name", item.getConfigName());
         }
-        ConstantConfigCenterItem byKey = get(item.getKey());
+        ConstantConfig byKey = get(item.getKey());
         if (byKey != null) {
-            return new ConstantConfigCenterConflictException(
+            return new ConstantConfigConflictException(
                     byKey.getId(), "key", item.getKey());
         }
-        return new ConstantConfigCenterConflictException(null, "key", item.getKey());
+        return new ConstantConfigConflictException(null, "key", item.getKey());
     }
 }

@@ -6,12 +6,12 @@
 
 - **开箱即用**：自动装配（`@AutoConfiguration` + `AutoConfiguration.imports`），引入依赖 + 建表即可使用。
 - **配置 / 分类双套对称 API**：管理面提供 `createConfig / updateConfig / deleteConfig / getConfigList / getConfigPage`，分类同理（`createCategory / updateCategory / deleteCategory / getCategoryList / getCategoryPage / listCategoryTree`），支持 CRUD、列表与分页。
-- **统一异常体系**：基类 `ConstantConfigCenterException`，派生冲突 / 缺失 / 序列化三类语义异常（均继承 `IllegalArgumentException`），调用方可精确捕获。
-- **纯新增写入**：`createConfig` / `updateConfig` 均为非覆盖式；`config_name` 或 `key` 任何唯一键冲突抛 `ConstantConfigCenterConflictException`（携带已存在行主键 id），不做静默覆盖。
+- **统一异常体系**：基类 `ConstantConfigException`，派生冲突 / 缺失 / 序列化三类语义异常（均继承 `IllegalArgumentException`），调用方可精确捕获。
+- **纯新增写入**：`createConfig` / `updateConfig` 均为非覆盖式；`config_name` 或 `key` 任何唯一键冲突抛 `ConstantConfigConflictException`（携带已存在行主键 id），不做静默覆盖。
 - **值类型支持**：`STRING` 直接存文本；`LIST` / `MAP` 以 JSON 文本存储，读取用 `TypeReference` 反序列化以保留泛型。
 - **名称反查**：`config_name`（常量配置名称）全局唯一，可用 `getKeyByConfigName` 由名称反查程序取值用的 `key`。
 - **树形分类**：邻接表 + 物化路径，支持分类的创建 / 更新 / 删除（仅叶子）/ 列表 / 分页与树查询。
-- **可扩展**：存储后端 SPI（`ConstantConfigCenterProvider` / `ConstantConfigCenterCategoryProvider`），可整体替换默认 JDBC 实现。
+- **可扩展**：存储后端 SPI（`ConstantConfigProvider` / `ConstantConfigCategoryProvider`），可整体替换默认 JDBC 实现。
 
 ## 快速开始
 
@@ -57,11 +57,11 @@ public class DemoService {
 
     public void demo() {
         // ── 新增配置（纯新增、冲突抛异常） ──
-        ConstantConfigCenterItem item = new ConstantConfigCenterItem();
+        ConstantConfig item = new ConstantConfig();
         item.setConfigName("比功率有效区间");
         item.setKey("iot.power.range");
         item.setValue("[1,50]");                 // STRING：直接载入文本
-        item.setValueType(ConstantConfigCenterValueType.STRING);
+        item.setValueType(ConstantConfigValueType.STRING);
         ccc.createConfig(item);
 
         // ── 读取（不存在返回 null / 默认值） ──
@@ -72,33 +72,33 @@ public class DemoService {
         String key = ccc.getKeyByConfigName("比功率有效区间");
 
         // ── LIST / MAP（以 JSON 文本存储，用 valueObject 传入集合/映射） ──
-        ConstantConfigCenterItem listItem = new ConstantConfigCenterItem();
+        ConstantConfig listItem = new ConstantConfig();
         listItem.setConfigName("允许设备");
         listItem.setKey("iot.allow.devices");
         listItem.setValueObject(List.of("d1", "d2"));
-        listItem.setValueType(ConstantConfigCenterValueType.LIST);
+        listItem.setValueType(ConstantConfigValueType.LIST);
         ccc.createConfig(listItem);
         List<String> devices = ccc.getConfig("iot.allow.devices", new TypeReference<List<String>>() {});
 
         // ── 更新（按 key 定位，version 自增；缺失抛 NotFoundException） ──
-        ConstantConfigCenterItem upd = new ConstantConfigCenterItem();
+        ConstantConfig upd = new ConstantConfig();
         upd.setKey("iot.power.range");
         upd.setValue("[1,60]");
         ccc.updateConfig(upd);
 
         // ── 列表 / 分页查询 ──
-        List<ConstantConfigCenterItem> list = ccc.getConfigList(null, "power");   // 关键字过滤
+        List<ConstantConfig> list = ccc.getConfigList(null, "power");   // 关键字过滤
         ConfigPageQuery q = new ConfigPageQuery();
         q.setPage(1);
         q.setSize(10);
-        PageResult<ConstantConfigCenterItem> page = ccc.getConfigPage(q);
+        PageResult<ConstantConfig> page = ccc.getConfigPage(q);
 
         // ── 删除（按 key 定位；缺失抛 NotFoundException） ──
         ccc.deleteConfig("iot.power.range");
 
         // ── 分类管理（树形） ──
         Long sensorId = ccc.createCategory(category("传感器", 1L, 0));
-        List<ConstantConfigCenterCategory> tree = ccc.listCategoryTree();
+        List<ConstantConfigCategory> tree = ccc.listCategoryTree();
         ccc.deleteCategory(sensorId);   // 仅允许删除叶子分类
     }
 }
@@ -106,18 +106,18 @@ public class DemoService {
 
 ### 5. 统一异常处理
 
-所有业务异常均继承运行时异常基类 `ConstantConfigCenterException`（间接继承 `IllegalArgumentException`），可按需精确捕获：
+所有业务异常均继承运行时异常基类 `ConstantConfigException`（间接继承 `IllegalArgumentException`），可按需精确捕获：
 
 | 异常 | 触发场景 | 关键信息 |
 | --- | --- | --- |
-| `ConstantConfigCenterConflictException` | 写入时 `config_name` / `key` 唯一键冲突 | `getConflictField()` / `getConflictValue()` / `getExistingId()` |
-| `ConstantConfigCenterNotFoundException` | 更新 / 删除的目标不存在 | 定位键及值 |
-| `ConstantConfigCenterSerializationException` | LIST / MAP 序列化 / 反序列化失败 | 原始文本与目标类型 |
+| `ConstantConfigConflictException` | 写入时 `config_name` / `key` 唯一键冲突 | `getConflictField()` / `getConflictValue()` / `getExistingId()` |
+| `ConstantConfigNotFoundException` | 更新 / 删除的目标不存在 | 定位键及值 |
+| `ConstantConfigSerializationException` | LIST / MAP 序列化 / 反序列化失败 | 原始文本与目标类型 |
 
 ```java
 try {
     ccc.createConfig(item("比功率有效区间", "iot.power.range.other", "[2,60]"));
-} catch (ConstantConfigCenterConflictException e) {
+} catch (ConstantConfigConflictException e) {
     // e.getConflictField()  → "config_name" 或 "key"
     // e.getConflictValue()  → 冲突的具体值
     // e.getExistingId()     → 已存在行的主键 id，便于定位冲突记录
@@ -135,22 +135,22 @@ try {
 | 读取 | `String getConfig(String key, String defaultValue)` | 带默认值 |
 | 读取 | `<T> T getConfig(String key, TypeReference<T> typeRef)` | 反序列化为强类型（保留泛型） |
 | 反查 | `String getKeyByConfigName(String configName)` | 名称反查 key（`config_name` 全局唯一） |
-| 新增 | `Long createConfig(ConstantConfigCenterItem item)` | 纯新增，冲突抛异常，返回主键 id |
-| 更新 | `void updateConfig(ConstantConfigCenterItem item)` | 按 `key` 合并补丁更新，缺失抛 `NotFoundException` |
+| 新增 | `Long createConfig(ConstantConfig item)` | 纯新增，冲突抛异常，返回主键 id |
+| 更新 | `void updateConfig(ConstantConfig item)` | 按 `key` 合并补丁更新，缺失抛 `NotFoundException` |
 | 删除 | `void deleteConfig(String key)` | 按 `key` 删除，缺失抛 `NotFoundException` |
-| 列表 | `List<ConstantConfigCenterItem> getConfigList(Long categoryId, String keyword)` | 按分类 / 关键字过滤 |
-| 分页 | `PageResult<ConstantConfigCenterItem> getConfigPage(ConfigPageQuery query)` | 分页查询（含总数） |
+| 列表 | `List<ConstantConfig> getConfigList(Long categoryId, String keyword)` | 按分类 / 关键字过滤 |
+| 分页 | `PageResult<ConstantConfig> getConfigPage(ConfigPageQuery query)` | 分页查询（含总数） |
 
 ### 分类管理
 
 | 类别 | 方法 | 说明 |
 | --- | --- | --- |
-| 新增 | `Long createCategory(ConstantConfigCenterCategory category)` | 自动生成 path / level |
-| 更新 | `void updateCategory(ConstantConfigCenterCategory category)` | 按 `categoryId` 更新 |
+| 新增 | `Long createCategory(ConstantConfigCategory category)` | 自动生成 path / level |
+| 更新 | `void updateCategory(ConstantConfigCategory category)` | 按 `categoryId` 更新 |
 | 删除 | `void deleteCategory(Long categoryId)` | 仅允许删除叶子分类 |
-| 列表 | `List<ConstantConfigCenterCategory> getCategoryList(Long parentId, String keyword)` | 按父ID / 关键字过滤 |
-| 分页 | `PageResult<ConstantConfigCenterCategory> getCategoryPage(CategoryPageQuery query)` | 分页查询（含总数） |
-| 树 | `List<ConstantConfigCenterCategory> listCategoryTree()` | 全部分类组装为树（含 `children`） |
+| 列表 | `List<ConstantConfigCategory> getCategoryList(Long parentId, String keyword)` | 按父ID / 关键字过滤 |
+| 分页 | `PageResult<ConstantConfigCategory> getCategoryPage(CategoryPageQuery query)` | 分页查询（含总数） |
+| 树 | `List<ConstantConfigCategory> listCategoryTree()` | 全部分类组装为树（含 `children`） |
 
 更多细节见 [项目技术文档](../docs/【常量配置中心】-【SpringBoot-Starter动态配置中心】-【v1.0】-项目技术文档.md)。
 

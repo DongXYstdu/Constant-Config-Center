@@ -1,4 +1,4 @@
-package com.constantconfig.center.core;
+package com.constantconfig.center.exception;
 
 /**
  * 常量配置唯一键冲突异常
@@ -7,7 +7,7 @@ package com.constantconfig.center.core;
  * 则本次更新失败并抛出本异常；通过 {@link #getExistingId()} 可拿到已存在行的主键 id，
  * 便于调用方定位冲突记录。</p>
  */
-public class ConstantConfigCenterConflictException extends ConstantConfigCenterException {
+public class ConstantConfigConflictException extends ConstantConfigException {
 
     /** 已存在行的主键 id */
     private final Long existingId;
@@ -18,7 +18,7 @@ public class ConstantConfigCenterConflictException extends ConstantConfigCenterE
     /** 冲突的具体值 */
     private final String conflictValue;
 
-    public ConstantConfigCenterConflictException(Long existingId, String conflictField, String conflictValue) {
+    public ConstantConfigConflictException(Long existingId, String conflictField, String conflictValue) {
         super("常量配置已存在，更新失败：字段 " + conflictField + " = " + conflictValue
                 + "，已存在行主键 id = " + existingId);
         this.existingId = existingId;

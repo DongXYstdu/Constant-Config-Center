@@ -1,4 +1,4 @@
-package com.constantconfig.center.api;
+package com.constantconfig.center.query;
 
 import java.util.ArrayList;
 import java.util.List;

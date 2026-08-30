@@ -1,15 +1,15 @@
-package com.constantconfig.center.core;
+package com.constantconfig.center.model;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 常量配置分类模型（树形）
+ * 常量配置分类实体（树形）
  *
  * <p>对应 {@code constant_config_category} 表的一行记录。
  * 采用邻接表（{@code category_parent_id}）+ 物化路径（{@code path}）冗余结构。</p>
  */
-public class ConstantConfigCenterCategory {
+public class ConstantConfigCategory {
 
     /** 分类ID */
     private Long categoryId;
@@ -30,7 +30,7 @@ public class ConstantConfigCenterCategory {
     private Integer sort = 0;
 
     /** 子分类（不落库，仅树查询组装用） */
-    private List<ConstantConfigCenterCategory> children = new ArrayList<>();
+    private List<ConstantConfigCategory> children = new ArrayList<>();
 
     public Long getCategoryId() {
         return categoryId;
@@ -80,11 +80,11 @@ public class ConstantConfigCenterCategory {
         this.sort = sort;
     }
 
-    public List<ConstantConfigCenterCategory> getChildren() {
+    public List<ConstantConfigCategory> getChildren() {
         return children;
     }
 
-    public void setChildren(List<ConstantConfigCenterCategory> children) {
+    public void setChildren(List<ConstantConfigCategory> children) {
         this.children = children;
     }
 }

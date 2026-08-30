@@ -1,16 +1,16 @@
 package com.constantconfig.center;
 
 import com.constantconfig.center.api.ConstantConfigCenter;
-import com.constantconfig.center.api.CategoryPageQuery;
-import com.constantconfig.center.api.ConfigPageQuery;
-import com.constantconfig.center.api.PageResult;
-import com.constantconfig.center.core.ConstantConfigCenterCategory;
-import com.constantconfig.center.core.ConstantConfigCenterConflictException;
-import com.constantconfig.center.core.ConstantConfigCenterException;
-import com.constantconfig.center.core.ConstantConfigCenterItem;
-import com.constantconfig.center.core.ConstantConfigCenterNotFoundException;
-import com.constantconfig.center.core.ConstantConfigCenterSerializationException;
-import com.constantconfig.center.core.ConstantConfigCenterValueType;
+import com.constantconfig.center.query.CategoryPageQuery;
+import com.constantconfig.center.query.ConfigPageQuery;
+import com.constantconfig.center.query.PageResult;
+import com.constantconfig.center.model.ConstantConfig;
+import com.constantconfig.center.model.ConstantConfigCategory;
+import com.constantconfig.center.model.ConstantConfigValueType;
+import com.constantconfig.center.exception.ConstantConfigConflictException;
+import com.constantconfig.center.exception.ConstantConfigException;
+import com.constantconfig.center.exception.ConstantConfigNotFoundException;
+import com.constantconfig.center.exception.ConstantConfigSerializationException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,8 +76,8 @@ class ConstantConfigCenterIntegrationTest {
     void configNameConflictThrowsConflictExceptionWithExistingId() {
         ccc.createConfig(item("配置A", "key.a", "v1"));
 
-        ConstantConfigCenterConflictException ex = assertThrows(
-                ConstantConfigCenterConflictException.class,
+        ConstantConfigConflictException ex = assertThrows(
+                ConstantConfigConflictException.class,
                 () -> ccc.createConfig(item("配置A", "key.b", "v2")));
 
         assertEquals("config_name", ex.getConflictField());
@@ -92,8 +92,8 @@ class ConstantConfigCenterIntegrationTest {
     void keyConflictThrowsConflictExceptionWithExistingId() {
         ccc.createConfig(item("配置A", "key.x", "v1"));
 
-        ConstantConfigCenterConflictException ex = assertThrows(
-                ConstantConfigCenterConflictException.class,
+        ConstantConfigConflictException ex = assertThrows(
+                ConstantConfigConflictException.class,
                 () -> ccc.createConfig(item("配置B", "key.x", "v2")));
 
         assertEquals("key", ex.getConflictField());
@@ -107,7 +107,7 @@ class ConstantConfigCenterIntegrationTest {
     @Test
     void conflictDoesNotOverwriteExistingRow() {
         ccc.createConfig(item("配置A", "key.a", "v1"));
-        assertThrows(ConstantConfigCenterConflictException.class,
+        assertThrows(ConstantConfigConflictException.class,
                 () -> ccc.createConfig(item("配置A", "key.b", "v2")));
         assertEquals("v1", ccc.getConfig("key.a"));
         assertNull(ccc.getConfig("key.b"));
@@ -117,9 +117,9 @@ class ConstantConfigCenterIntegrationTest {
 
     @Test
     void listReadWrite() {
-        ConstantConfigCenterItem listItem = item("允许列表", "iot.allow.list", null);
+        ConstantConfig listItem = item("允许列表", "iot.allow.list", null);
         listItem.setValueObject(Arrays.asList("a", "b", "c"));
-        listItem.setValueType(ConstantConfigCenterValueType.LIST);
+        listItem.setValueType(ConstantConfigValueType.LIST);
         ccc.createConfig(listItem);
 
         List<String> list = ccc.getConfig("iot.allow.list", new TypeReference<List<String>>() {});
@@ -131,9 +131,9 @@ class ConstantConfigCenterIntegrationTest {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("scale", 0.1);
         map.put("enabled", true);
-        ConstantConfigCenterItem mapItem = item("控制参数", "iot.param", null);
+        ConstantConfig mapItem = item("控制参数", "iot.param", null);
         mapItem.setValueObject(map);
-        mapItem.setValueType(ConstantConfigCenterValueType.MAP);
+        mapItem.setValueType(ConstantConfigValueType.MAP);
         ccc.createConfig(mapItem);
 
         Map<String, Object> result = ccc.getConfig("iot.param", new TypeReference<Map<String, Object>>() {});
@@ -147,7 +147,7 @@ class ConstantConfigCenterIntegrationTest {
         // 字符串原样返回
         assertEquals("not-json", ccc.getConfig("iot.bad"));
         // 按 List 反序列化失败 → SerializationException
-        assertThrows(ConstantConfigCenterSerializationException.class,
+        assertThrows(ConstantConfigSerializationException.class,
                 () -> ccc.getConfig("iot.bad", new TypeReference<List<?>>() {}));
     }
 
@@ -159,7 +159,7 @@ class ConstantConfigCenterIntegrationTest {
         Long versionBefore = jdbcTemplate.queryForObject(
                 "SELECT version FROM constant_config_center WHERE `key` = ?", Long.class, "iot.pressure.target");
 
-        ConstantConfigCenterItem upd = item("目标压力2", "iot.pressure.target", "0.2");
+        ConstantConfig upd = item("目标压力2", "iot.pressure.target", "0.2");
         upd.setRemark("调参");
         ccc.updateConfig(upd);
 
@@ -174,16 +174,16 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createConfig(item("A", "k1", "v1"));
         ccc.createConfig(item("B", "k2", "v2"));
         // 把 k1 改成已占用的名称 B
-        ConstantConfigCenterItem upd = new ConstantConfigCenterItem();
+        ConstantConfig upd = new ConstantConfig();
         upd.setKey("k1");
         upd.setConfigName("B");
-        assertThrows(ConstantConfigCenterConflictException.class, () -> ccc.updateConfig(upd));
+        assertThrows(ConstantConfigConflictException.class, () -> ccc.updateConfig(upd));
     }
 
     @Test
     void updateConfigMissingThrowsNotFound() {
-        ConstantConfigCenterItem upd = item("不存在", "no.such.key", "x");
-        assertThrows(ConstantConfigCenterNotFoundException.class, () -> ccc.updateConfig(upd));
+        ConstantConfig upd = item("不存在", "no.such.key", "x");
+        assertThrows(ConstantConfigNotFoundException.class, () -> ccc.updateConfig(upd));
     }
 
     @Test
@@ -192,7 +192,7 @@ class ConstantConfigCenterIntegrationTest {
         ccc.deleteConfig("k1");
         assertNull(ccc.getConfig("k1"));
         // 重复删除不存在 → NotFoundException
-        assertThrows(ConstantConfigCenterNotFoundException.class, () -> ccc.deleteConfig("k1"));
+        assertThrows(ConstantConfigNotFoundException.class, () -> ccc.deleteConfig("k1"));
     }
 
     // ────────────────────── 列表 / 分页 ──────────────────────
@@ -204,7 +204,7 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createConfig(item("温度下限", "iot.temp.min", "-20"));
 
         // 按关键字（匹配 key）
-        List<ConstantConfigCenterItem> list = ccc.getConfigList(null, "press");
+        List<ConstantConfig> list = ccc.getConfigList(null, "press");
         assertEquals(1, list.size());
         assertEquals("压力上限", list.get(0).getConfigName());
 
@@ -224,7 +224,7 @@ class ConstantConfigCenterIntegrationTest {
         ConfigPageQuery q1 = new ConfigPageQuery();
         q1.setPage(1);
         q1.setSize(2);
-        PageResult<ConstantConfigCenterItem> p1 = ccc.getConfigPage(q1);
+        PageResult<ConstantConfig> p1 = ccc.getConfigPage(q1);
         assertEquals(3, p1.getTotal());
         assertEquals(2, p1.getList().size());
         assertEquals(1, p1.getPage());
@@ -238,8 +238,8 @@ class ConstantConfigCenterIntegrationTest {
 
     // ────────────────────── 分类管理（CRUD + 树） ──────────────────────
 
-    private ConstantConfigCenterCategory category(String name, Long parentId, Integer sort) {
-        ConstantConfigCenterCategory category = new ConstantConfigCenterCategory();
+    private ConstantConfigCategory category(String name, Long parentId, Integer sort) {
+        ConstantConfigCategory category = new ConstantConfigCategory();
         category.setCategoryName(name);
         category.setCategoryParentId(parentId);
         category.setSort(sort);
@@ -250,9 +250,9 @@ class ConstantConfigCenterIntegrationTest {
     void createCategoryGeneratesPathAndLevel() {
         Long childId = ccc.createCategory(category("传感器", 1L, 0));
 
-        List<ConstantConfigCenterCategory> roots = ccc.listCategoryTree();
+        List<ConstantConfigCategory> roots = ccc.listCategoryTree();
         assertEquals(1, roots.size());
-        List<ConstantConfigCenterCategory> children = roots.get(0).getChildren();
+        List<ConstantConfigCategory> children = roots.get(0).getChildren();
         assertEquals(1, children.size());
         assertEquals("传感器", children.get(0).getCategoryName());
         assertEquals("/1/" + childId, children.get(0).getPath());
@@ -262,7 +262,7 @@ class ConstantConfigCenterIntegrationTest {
     @Test
     void updateCategoryRenames() {
         Long id = ccc.createCategory(category("传感器", 1L, 0));
-        ConstantConfigCenterCategory upd = new ConstantConfigCenterCategory();
+        ConstantConfigCategory upd = new ConstantConfigCategory();
         upd.setCategoryId(id);
         upd.setCategoryName("功率计");
         ccc.updateCategory(upd);
@@ -273,14 +273,14 @@ class ConstantConfigCenterIntegrationTest {
     @Test
     void categoryNamesAreUniqueAcrossSiblings() {
         ccc.createCategory(category("重复分类", 1L, 0));
-        assertThrows(ConstantConfigCenterException.class,
+        assertThrows(ConstantConfigException.class,
                 () -> ccc.createCategory(category("重复分类", 1L, 0)));
     }
 
     @Test
     void deleteCategoryWithChildrenThrows() {
         ccc.createCategory(category("子分类", 1L, 0));
-        assertThrows(ConstantConfigCenterException.class,
+        assertThrows(ConstantConfigException.class,
                 () -> ccc.deleteCategory(ConstantConfigCenter.DEFAULT_CATEGORY_ID));
     }
 
@@ -289,7 +289,7 @@ class ConstantConfigCenterIntegrationTest {
         Long childId = ccc.createCategory(category("叶子分类", 1L, 0));
         ccc.deleteCategory(childId);
         assertTrue(ccc.listCategoryTree().get(0).getChildren().isEmpty());
-        assertThrows(ConstantConfigCenterNotFoundException.class, () -> ccc.deleteCategory(childId));
+        assertThrows(ConstantConfigNotFoundException.class, () -> ccc.deleteCategory(childId));
     }
 
     @Test
@@ -301,7 +301,7 @@ class ConstantConfigCenterIntegrationTest {
         query.setParentId(1L);
         query.setPage(1);
         query.setSize(1);
-        PageResult<ConstantConfigCenterCategory> page = ccc.getCategoryPage(query);
+        PageResult<ConstantConfigCategory> page = ccc.getCategoryPage(query);
         // 仅默认(1) + 两个子分类，按 parentId=1 过滤后命中 2 条
         assertEquals(2, page.getTotal());
         assertEquals(1, page.getList().size());
@@ -309,12 +309,12 @@ class ConstantConfigCenterIntegrationTest {
 
     // ────────────────────── 工具 ──────────────────────
 
-    private ConstantConfigCenterItem item(String name, String key, String value) {
-        ConstantConfigCenterItem item = new ConstantConfigCenterItem();
+    private ConstantConfig item(String name, String key, String value) {
+        ConstantConfig item = new ConstantConfig();
         item.setConfigName(name);
         item.setKey(key);
         item.setValue(value);
-        item.setValueType(ConstantConfigCenterValueType.STRING);
+        item.setValueType(ConstantConfigValueType.STRING);
         return item;
     }
 }

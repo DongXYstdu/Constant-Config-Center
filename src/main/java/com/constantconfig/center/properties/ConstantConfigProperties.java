@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>通过 {@code spring.constant-config-center.*} 前缀绑定外部配置。</p>
  */
 @ConfigurationProperties(prefix = "spring.constant-config-center")
-public class ConstantConfigCenterProperties {
+public class ConstantConfigProperties {
 
     /** 是否启用常量配置中心 */
     private boolean enabled = true;

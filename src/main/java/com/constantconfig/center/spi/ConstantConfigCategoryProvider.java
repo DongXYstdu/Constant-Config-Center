@@ -1,4 +1,7 @@
-package com.constantconfig.center.core;
+package com.constantconfig.center.spi;
+
+import com.constantconfig.center.model.ConstantConfigCategory;
+import com.constantconfig.center.exception.ConstantConfigException;
 
 import java.util.List;
 
@@ -12,9 +15,9 @@ import java.util.List;
  *
  * <p><b>原语约定</b>：与配置 SPI 对齐——{@code update} / {@code delete} 返回 {@code boolean}
  * 表示目标是否存在；{@code create} 遇父分类不存在或名称重复时抛
- * {@link ConstantConfigCenterException}。</p>
+ * {@link ConstantConfigException}。</p>
  */
-public interface ConstantConfigCenterCategoryProvider {
+public interface ConstantConfigCategoryProvider {
 
     /**
      * 按分类ID查询
@@ -22,7 +25,7 @@ public interface ConstantConfigCenterCategoryProvider {
      * @param categoryId 分类ID
      * @return 分类；不存在时返回 {@code null}
      */
-    ConstantConfigCenterCategory get(Long categoryId);
+    ConstantConfigCategory get(Long categoryId);
 
     /**
      * 按分类名称查询（{@code category_name} 全局唯一，用于名称反查与去重）
@@ -30,16 +33,16 @@ public interface ConstantConfigCenterCategoryProvider {
      * @param categoryName 分类名称
      * @return 分类；不存在时返回 {@code null}
      */
-    ConstantConfigCenterCategory getByCategoryName(String categoryName);
+    ConstantConfigCategory getByCategoryName(String categoryName);
 
     /**
      * 新增分类并自动生成 path / level
      *
      * @param category 分类（需提供 {@code categoryName}、{@code categoryParentId}、{@code sort}）
      * @return 新分类ID
-     * @throws ConstantConfigCenterException 父分类不存在或名称重复时抛出
+     * @throws ConstantConfigException 父分类不存在或名称重复时抛出
      */
-    Long create(ConstantConfigCenterCategory category);
+    Long create(ConstantConfigCategory category);
 
     /**
      * 更新分类（按 {@code categoryId} 定位）
@@ -48,9 +51,9 @@ public interface ConstantConfigCenterCategoryProvider {
      *
      * @param category 分类（必须携带 {@code categoryId}）
      * @return 目标分类是否存在（不存在返回 {@code false}，由门面转抛异常）
-     * @throws ConstantConfigCenterException 名称被其它分类占用时抛出
+     * @throws ConstantConfigException 名称被其它分类占用时抛出
      */
-    boolean update(ConstantConfigCenterCategory category);
+    boolean update(ConstantConfigCategory category);
 
     /**
      * 删除分类
@@ -67,7 +70,7 @@ public interface ConstantConfigCenterCategoryProvider {
      * @param keyword 关键字，模糊匹配 category_name；{@code null} / 空则不过滤
      * @return 分类列表；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCenterCategory> list(Long parentId, String keyword);
+    List<ConstantConfigCategory> list(Long parentId, String keyword);
 
     /**
      * 分类分页查询（按下标范围返回命中记录的某一页）
@@ -78,7 +81,7 @@ public interface ConstantConfigCenterCategoryProvider {
      * @param limit 返回行数上限
      * @return 该页分类列表；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCenterCategory> listPage(Long parentId, String keyword, int offset, int limit);
+    List<ConstantConfigCategory> listPage(Long parentId, String keyword, int offset, int limit);
 
     /**
      * 按过滤条件统计分类命中总数

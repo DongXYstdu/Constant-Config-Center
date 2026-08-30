@@ -1,11 +1,14 @@
 package com.constantconfig.center.api;
 
-import com.constantconfig.center.core.ConstantConfigCenterCategory;
-import com.constantconfig.center.core.ConstantConfigCenterConflictException;
-import com.constantconfig.center.core.ConstantConfigCenterException;
-import com.constantconfig.center.core.ConstantConfigCenterItem;
-import com.constantconfig.center.core.ConstantConfigCenterNotFoundException;
-import com.constantconfig.center.core.ConstantConfigCenterSerializationException;
+import com.constantconfig.center.model.ConstantConfig;
+import com.constantconfig.center.model.ConstantConfigCategory;
+import com.constantconfig.center.exception.ConstantConfigConflictException;
+import com.constantconfig.center.exception.ConstantConfigException;
+import com.constantconfig.center.exception.ConstantConfigNotFoundException;
+import com.constantconfig.center.exception.ConstantConfigSerializationException;
+import com.constantconfig.center.query.CategoryPageQuery;
+import com.constantconfig.center.query.ConfigPageQuery;
+import com.constantconfig.center.query.PageResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.util.List;
@@ -21,14 +24,14 @@ import java.util.List;
  *     LIST / MAP 返回 JSON 文本；需要反序列化为强类型时用 {@link #getConfig(String, TypeReference)}
  *     传入 {@link TypeReference} 以保留泛型。</li>
  * <li>管理 CRUD —— {@code createConfig / updateConfig / deleteConfig / getConfigList / getConfigPage}
- *     以 {@link ConstantConfigCenterItem} 实体承载，支持增删改、列表与分页。</li>
+ *     以 {@link ConstantConfig} 实体承载，支持增删改、列表与分页。</li>
  * </ul></p>
  *
- * <p><b>异常约定</b>（均为 {@link ConstantConfigCenterException} 子类，
+ * <p><b>异常约定</b>（均为 {@link ConstantConfigException} 子类，
  * 间接继承 {@link IllegalArgumentException}）：唯一键冲突抛
- * {@link ConstantConfigCenterConflictException}；更新 / 删除目标不存在抛
- * {@link ConstantConfigCenterNotFoundException}；LIST / MAP 序列化失败抛
- * {@link ConstantConfigCenterSerializationException}。</p>
+ * {@link ConstantConfigConflictException}；更新 / 删除目标不存在抛
+ * {@link ConstantConfigNotFoundException}；LIST / MAP 序列化失败抛
+ * {@link ConstantConfigSerializationException}。</p>
  */
 public interface ConstantConfigCenter {
 
@@ -66,7 +69,7 @@ public interface ConstantConfigCenter {
      * @param typeRef 目标类型引用（保留泛型）
      * @param <T> 返回类型
      * @return 反序列化后的值；不存在时返回 {@code null}
-     * @throws ConstantConfigCenterSerializationException 值无法反序列化为目标类型时抛出
+     * @throws ConstantConfigSerializationException 值无法反序列化为目标类型时抛出
      */
     <T> T getConfig(String key, TypeReference<T> typeRef);
 
@@ -88,9 +91,9 @@ public interface ConstantConfigCenter {
      *
      * @param item 配置条目（至少提供 configName、key、value）
      * @return 新记录主键 id
-     * @throws ConstantConfigCenterConflictException {@code config_name} 或 {@code key} 已被占用时抛出
+     * @throws ConstantConfigConflictException {@code config_name} 或 {@code key} 已被占用时抛出
      */
-    Long createConfig(ConstantConfigCenterItem item);
+    Long createConfig(ConstantConfig item);
 
     /**
      * 更新配置（按 {@code key} 定位，不修改 {@code key} 本身）
@@ -99,16 +102,16 @@ public interface ConstantConfigCenter {
      * {@code categoryId}；若 {@code configName} 改到与其它记录冲突则抛冲突异常。</p>
      *
      * @param item 配置条目（必须携带 {@code key} 作为定位键）
-     * @throws ConstantConfigCenterNotFoundException 目标 key 不存在时抛出
-     * @throws ConstantConfigCenterConflictException 新 configName 与其它记录冲突时抛出
+     * @throws ConstantConfigNotFoundException 目标 key 不存在时抛出
+     * @throws ConstantConfigConflictException 新 configName 与其它记录冲突时抛出
      */
-    void updateConfig(ConstantConfigCenterItem item);
+    void updateConfig(ConstantConfig item);
 
     /**
      * 删除配置（按 {@code key} 定位）
      *
      * @param key 键（全局唯一）
-     * @throws ConstantConfigCenterNotFoundException 目标 key 不存在时抛出
+     * @throws ConstantConfigNotFoundException 目标 key 不存在时抛出
      */
     void deleteConfig(String key);
 
@@ -119,7 +122,7 @@ public interface ConstantConfigCenter {
      * @param keyword 关键字，模糊匹配 key / config_name；{@code null} / 空则不过滤
      * @return 配置条目列表；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCenterItem> getConfigList(Long categoryId, String keyword);
+    List<ConstantConfig> getConfigList(Long categoryId, String keyword);
 
     /**
      * 配置分页查询
@@ -127,7 +130,7 @@ public interface ConstantConfigCenter {
      * @param query 分页条件（categoryId / keyword / page / size）
      * @return 分页结果（含总数）
      */
-    PageResult<ConstantConfigCenterItem> getConfigPage(ConfigPageQuery query);
+    PageResult<ConstantConfig> getConfigPage(ConfigPageQuery query);
 
     // ────────────────────── 分类管理 ──────────────────────
 
@@ -139,25 +142,25 @@ public interface ConstantConfigCenter {
      *
      * @param category 分类
      * @return 新分类ID
-     * @throws ConstantConfigCenterException 父分类不存在或父级名称重复时抛出
+     * @throws ConstantConfigException 父分类不存在或父级名称重复时抛出
      */
-    Long createCategory(ConstantConfigCenterCategory category);
+    Long createCategory(ConstantConfigCategory category);
 
     /**
      * 更新分类（按 {@code categoryId} 定位）
      *
      * @param category 分类（必须携带 {@code categoryId}）
-     * @throws ConstantConfigCenterNotFoundException 目标分类不存在时抛出
-     * @throws ConstantConfigCenterException 名称被其它分类占用时抛出
+     * @throws ConstantConfigNotFoundException 目标分类不存在时抛出
+     * @throws ConstantConfigException 名称被其它分类占用时抛出
      */
-    void updateCategory(ConstantConfigCenterCategory category);
+    void updateCategory(ConstantConfigCategory category);
 
     /**
      * 删除分类（仅允许删除无子分类的叶子分类）
      *
      * @param categoryId 分类ID
-     * @throws ConstantConfigCenterNotFoundException 目标分类不存在时抛出
-     * @throws ConstantConfigCenterException 分类存在子分类时抛出
+     * @throws ConstantConfigNotFoundException 目标分类不存在时抛出
+     * @throws ConstantConfigException 分类存在子分类时抛出
      */
     void deleteCategory(Long categoryId);
 
@@ -168,7 +171,7 @@ public interface ConstantConfigCenter {
      * @param keyword 关键字，模糊匹配 category_name；{@code null} / 空则不过滤
      * @return 分类列表；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCenterCategory> getCategoryList(Long parentId, String keyword);
+    List<ConstantConfigCategory> getCategoryList(Long parentId, String keyword);
 
     /**
      * 分类分页查询
@@ -176,12 +179,12 @@ public interface ConstantConfigCenter {
      * @param query 分页条件（parentId / keyword / page / size）
      * @return 分页结果（含总数）
      */
-    PageResult<ConstantConfigCenterCategory> getCategoryPage(CategoryPageQuery query);
+    PageResult<ConstantConfigCategory> getCategoryPage(CategoryPageQuery query);
 
     /**
      * 查询全部分类并组装为树形结构
      *
      * @return 根分类列表（含嵌套 {@code children}）；无数据时返回空列表（非 null）
      */
-    List<ConstantConfigCenterCategory> listCategoryTree();
+    List<ConstantConfigCategory> listCategoryTree();
 }
