@@ -4,6 +4,7 @@ import com.constantconfig.center.model.ConstantConfig;
 import com.constantconfig.center.model.ConstantConfigValueType;
 import com.constantconfig.center.spi.ConstantConfigProvider;
 import com.constantconfig.center.exception.ConstantConfigConflictException;
+import com.constantconfig.center.exception.ConstantConfigVersionMismatchException;
 import com.constantconfig.center.properties.ConstantConfigProperties;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -132,10 +133,21 @@ public class ConstantConfigJdbcProvider implements ConstantConfigProvider {
             }
         }
 
+        // 乐观锁：期望版本 = 调用方显式传入（若提供），否则取当前已读到的版本作保底，
+        // 防止「读旧值合并 → 更新」窗口内被其它并发写入覆盖（TOCTOU）。
+        long expectedVersion = item.getVersion() != null ? item.getVersion() : existing.getVersion();
+
         String sql = "UPDATE " + table
                 + " SET category_id = ?, config_name = ?, `value` = ?, value_type = ?, remark = ?, "
-                + "version = version + 1, update_time = NOW() WHERE `key` = ?";
-        jdbcTemplate.update(sql, categoryId, configName, value, valueType.name(), remark, item.getKey());
+                + "version = version + 1, update_time = NOW() WHERE `key` = ? AND version = ?";
+        int affected = jdbcTemplate.update(
+                sql, categoryId, configName, value, valueType.name(), remark, item.getKey(), expectedVersion);
+        if (affected == 0) {
+            // 记录刚已被确认存在，故仅可能因版本被并发修改而失配，反查当前版本供调用方重试
+            ConstantConfig current = get(item.getKey());
+            long actual = current != null ? current.getVersion() : -1L;
+            throw new ConstantConfigVersionMismatchException(item.getKey(), expectedVersion, actual);
+        }
         return true;
     }
 
@@ -171,6 +183,13 @@ public class ConstantConfigJdbcProvider implements ConstantConfigProvider {
         List<Object> args = new ArrayList<>();
         buildFilter(sql, args, categoryId, keyword);
         Long count = jdbcTemplate.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public long countByCategory(Long categoryId) {
+        String sql = "SELECT COUNT(*) FROM " + table + " WHERE category_id = ?";
+        Long count = jdbcTemplate.queryForObject(sql, Long.class, categoryId);
         return count == null ? 0L : count;
     }
 

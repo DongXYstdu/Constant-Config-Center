@@ -11,12 +11,14 @@ import com.constantconfig.center.exception.ConstantConfigConflictException;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.exception.ConstantConfigNotFoundException;
 import com.constantconfig.center.exception.ConstantConfigSerializationException;
+import com.constantconfig.center.exception.ConstantConfigVersionMismatchException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -170,6 +172,26 @@ class ConstantConfigCenterIntegrationTest {
     }
 
     @Test
+    void updateConfigWithStaleVersionThrowsVersionMismatch() {
+        ccc.createConfig(item("版本测试", "iot.version.key", "v0"));
+        // 模拟并发：另一会话已把版本推进到 1
+        jdbcTemplate.update(
+                "UPDATE constant_config_center SET version = version + 1 WHERE `key` = ?", "iot.version.key");
+
+        // 用过期的期望版本 0 提交，应被乐观锁拦截
+        ConstantConfig stale = item("版本测试", "iot.version.key", "v-later");
+        stale.setVersion(0L);
+        ConstantConfigVersionMismatchException ex = assertThrows(
+                ConstantConfigVersionMismatchException.class, () -> ccc.updateConfig(stale));
+
+        assertEquals("iot.version.key", ex.getKey());
+        assertEquals(Long.valueOf(0L), ex.getExpectedVersion());
+        assertEquals(Long.valueOf(1L), ex.getActualVersion());
+        // 值未被覆盖
+        assertEquals("v0", ccc.getConfig("iot.version.key"));
+    }
+
+    @Test
     void updateConfigNameConflictThrows() {
         ccc.createConfig(item("A", "k1", "v1"));
         ccc.createConfig(item("B", "k2", "v2"));
@@ -282,6 +304,25 @@ class ConstantConfigCenterIntegrationTest {
         ccc.createCategory(category("子分类", 1L, 0));
         assertThrows(ConstantConfigException.class,
                 () -> ccc.deleteCategory(ConstantConfigCenter.DEFAULT_CATEGORY_ID));
+    }
+
+    @Test
+    void categoryForeignKeyRejectsOrphanInsert() {
+        // 绕过门面直插：指向不存在分类的配置行，应被外键兜底拦截（DataIntegrityViolation）
+        assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update(
+                "INSERT INTO constant_config_center "
+                        + "(category_id, config_name, `key`, `value`, value_type, version, create_time, update_time) "
+                        + "VALUES (999999, '孤儿配置', 'orphan.key', 'v', 'STRING', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"));
+    }
+
+    @Test
+    void deleteCategoryWithConfigsThrows() {
+        // 分类下挂载配置后，删除该分类应被拒绝（防止配置变孤儿）
+        Long categoryId = ccc.createCategory(category("有配置分类", 1L, 0));
+        ConstantConfig cfg = item("分类内配置", "key.in.category", "v1");
+        cfg.setCategoryId(categoryId);
+        ccc.createConfig(cfg);
+        assertThrows(ConstantConfigException.class, () -> ccc.deleteCategory(categoryId));
     }
 
     @Test

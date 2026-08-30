@@ -159,6 +159,11 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
         if (categoryProvider.countChildren(categoryId) > 0) {
             throw new ConstantConfigException("分类存在子分类，无法删除：categoryId=" + categoryId);
         }
+        long configCount = provider.countByCategory(categoryId);
+        if (configCount > 0) {
+            throw new ConstantConfigException(
+                    "分类下存在 " + configCount + " 条配置，请先清空或迁移后再删除：categoryId=" + categoryId);
+        }
         categoryProvider.delete(categoryId);
     }
 

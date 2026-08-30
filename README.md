@@ -173,3 +173,139 @@ mvn test
 ```
 
 测试基于 H2 内存库（MySQL 兼容模式），覆盖读写、唯一键冲突异常（含 `existingId` 校验）、更新/删除缺失（`NotFoundException`）、LIST/MAP 序列化、非法 JSON、名称反查、列表/分页、分类 CRUD 与树管理。
+
+### 可信度覆盖清单（19 项）
+
+以下为在 yudao `@SpringBootTest` 环境下跑通的 **19 个集成用例**，按 `@Order` 顺序分组，覆盖正常业务流程、分类树、异常语义与清理验证四类。
+
+| # | 测试用例 | 覆盖点 |
+| --- | --- | --- |
+| 1 | 创建 STRING 类型配置 | 新增配置、返回主键、值写入正确 |
+| 2 | 创建 LIST 类型配置（JSON 存储） | `valueObject` 集合写入、JSON 落库、`TypeReference` 读取还原 |
+| 3 | 创建 MAP 类型配置（JSON 存储） | `valueObject` 映射写入、JSON 落库、泛型反序列化还原 |
+| 4 | 带默认值读取 | `getConfig(key, default)` 命中返回配置、未命中返回默认值 |
+| 5 | 名称反查 key | `getKeyByConfigName` 由唯一 `config_name` 反查 `key` |
+| 6 | 更新配置（按 key 定位） | 合并补丁更新、值变更生效、缺失返回 `null` |
+| 7 | 列表查询（按关键字过滤） | `getConfigList` 分类 / 关键字过滤行为 |
+| 8 | 分页查询 | `getConfigPage` 分页总数与当前页数据正确 |
+| 10 | 创建分类 | 自动生成 `path` / `level`、父子挂载 |
+| 11 | 查询分类树 | `listCategoryTree` 树形组装、`children` 层级正确 |
+| 12 | 分类分页查询 | `getCategoryPage` 分页结果正确 |
+| 20 | 唯一键冲突异常（config_name 重复） | 抛 `ConstantConfigConflictException`，校验 `existingId` 定位 |
+| 21 | 唯一键冲突异常（key 重复） | key 唯一键冲突同样被拦截 |
+| 22 | 更新不存在的配置抛 NotFoundException | 缺失更新语义 |
+| 23 | 删除不存在的配置抛 NotFoundException | 缺失删除语义 |
+| 24 | LIST 类型非法 JSON 抛 SerializationException | 反序列化失败被封装为语义异常 |
+| 30 | 删除配置 | 按 key 删除后不可再读到 |
+| 31 | 删除叶子分类 | 叶子分类可删除、删除后查不到 |
+| 32 | 非叶子分类删除应失败 | 存在子分类时删除抛异常，保护父级 |
+
+> 编号按代码 `@Order` 保留连续槽位（如未使用的 9/13-19/25-29），便于后续扩展用例而无需重新编号。
+
+## 集成到现有 Spring Boot 项目（以 yudao-boot-mini 为例）
+
+以下是本 starter 在 [yudao-boot-mini-master-jdk17](https://github.com/YunaiV/yudao) 这类**多模块 Maven 项目**中的真实集成经验，可作为落地参考。
+
+### 1. BOM 中管理版本
+
+yudao 用 `yudao-dependencies` 统一管理三方依赖版本，在 [yudao-dependencies/pom.xml](yudao-dependencies/pom.xml) 的 `<dependencyManagement>` 中声明；业务模块不再写版本号。
+
+```xml
+<dependency>
+    <groupId>io.github.dongxystdu</groupId>
+    <artifactId>constant-config-spring-boot-starter</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### 2. 业务模块引入
+
+在需要使用的模块（如 `yudao-server`）添加依赖：
+
+```xml
+<dependency>
+    <groupId>io.github.dongxystdu</groupId>
+    <artifactId>constant-config-spring-boot-starter</artifactId>
+</dependency>
+```
+
+### 3. 初始化数据库
+
+在目标库（如 `yudao-cc-test-1-0-0`）执行 [constant_config_center.sql](sql/constant_config_center.sql)。**务必保证默认分类 `category_id=1`（名称“默认”）已插入** —— 建表脚本末尾自带该 INSERT，若仅执行了 CREATE TABLE 而漏掉 INSERT，创建分类会抛 `ConstantConfigException: 父分类不存在 categoryId=1`。可校验：
+
+```sql
+SELECT * FROM constant_config_category WHERE category_id = 1;
+```
+
+### 4. 多模块运行单个模块的测试
+
+yudao 是 reactor 多模块工程，`yudao-server` 依赖 `yudao-module-system`、`yudao-module-infra` 等本地 SNAPSHOT 模块，单独 `-pl` 无法解析依赖，需用 `-am` 一并纳入 reactor：
+
+```bash
+mvn test -Dtest=ConstantConfigIntegrationTest -pl yudao-server -am \
+  -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+- `-am`：同时构建 `yudao-server` 依赖的兄弟模块。
+- `-Dsurefire.failIfNoSpecifiedTests=false`：避免 `-Dtest` 指定到无该测试类的其它模块时报错。
+
+### 5. 集成测试示例（@SpringBootTest）
+
+引入依赖并 `@Autowired` 门面 Bean 即可直接测试，无需任何额外配置：
+
+```java
+@SpringBootTest(classes = YudaoServerApplication.class)
+class ConstantConfigIntegrationTest {
+
+    @Autowired
+    private ConstantConfigCenter ccc;
+
+    @Test
+    void createAndReadConfig() {
+        ConstantConfig item = new ConstantConfig();
+        item.setConfigName("比功率有效区间");
+        item.setKey("iot.power.range");
+        item.setValue("[1,50]");
+        item.setValueType(ConstantConfigValueType.STRING);
+        // pending...
+    }
+}
+```
+
+### 踩坑清单
+
+| 现象 | 根因 | 处理 |
+| --- | --- | --- |
+| `Could not find artifact yudao-module-system:jar` | 单模块 `-pl` 不含依赖的本地模块 | 加 `-am` |
+| `找不到符号 YudaoServerApplication` | 测试类 import 包名与启动类不符（启动类在 `.server` 子包） | 用 `import cn.iocoder.yudao.server.YudaoServerApplication;` |
+| `Unknown lifecycle phase .failIfNoSpecifiedTests=false` | 某些 shell 拆分 `-D` 参数带点号 | 给参数加引号 `"-Dsurefire.failIfNoSpecifiedTests=false"` |
+| `父分类不存在 categoryId=1` | 建表时漏执行默认分类 INSERT | 补插 `category_id=1` 默认分类 |
+| `Table 'xxx.constant_config_center' doesn't exist` | 未执行建表脚本 | 执行 [constant_config_center.sql](sql/constant_config_center.sql) |
+
+---
+
+## 变更记录
+
+### v1.0.1 —— 三项 P0 数据一致性修复
+
+> 均为 **正确性 / 健壮性** 修复，不含功能扩展。若沿用旧的 `ConstantConfigProvider` 自定义实现，请同步补方法。涉及 DDL 时遵循下方注明。
+
+**1. `deleteCategory` 增加"分类下无配置"校验（应用层保护）**
+- 原行为：删除分类只校验"无子分类"，分类下若已挂配置仍可删除，导致配置变为孤儿（`category_id` 悬空）。
+- 现行为：校验链 = 分类存在 → 无子分类 → **分类下无配置** → 删除；分类下有配置抛 `ConstantConfigException`，提示先清空或迁移。
+- 变更：`ConstantConfigProvider` 新增 `long countByCategory(Long categoryId)`。
+
+**2. `updateConfig` 落实 version 乐观锁（CAS）**
+- 原行为：`UPDATE` 仅 `WHERE key=?` 且 `version=version+1`，无版本比对，并发更新互相覆盖。
+- 现行为：`UPDATE` 带 `WHERE key=? AND version=?`；提交的期望版本与库里当前版本不一致则抛新增的
+  `ConstantConfigVersionMismatchException`（携带 `key` / 期望版本 / 实际版本）。
+- 兼容策略：`item.version` 为空时，以读取到的当前版本作保底 CAS，旧调用方式不受影响，同时堵住"读旧值→更新"窗口内的覆盖竞态。
+
+**3. `constant_config_center.category_id` 增加外键兜底（DB 层保护）**
+- 建表脚本 [constant_config_center.sql](sql/constant_config_center.sql) 已内联：
+  `FOREIGN KEY (category_id) REFERENCES constant_config_category(category_id) ON UPDATE RESTRICT ON DELETE RESTRICT`。
+- 存量库升级：执行 [migrate_add_category_fk.sql](sql/migrate_add_category_fk.sql)，Step1 先清理孤儿配置，Step2 再加外键。
+- 策略说明：采用 **`RESTRICT`**（删除仍有配置的分类时被 DB 拒绝）而非 `CASCADE`（连带删除配置），
+  与应用层"删分类需无配置"语义一致，配置不会因删分类被静默连带删除。
+
+**回归**：新增 3 个集成用例（删分类下有配置被拒 / 过期版本提交被乐观锁拦截 / 直插孤儿配置被外键拦截），starter `mvn test` 全量通过（23 项）。

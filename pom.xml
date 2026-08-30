@@ -13,7 +13,7 @@
 
     <groupId>io.github.dongxystdu</groupId>
     <artifactId>constant-config-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <packaging>jar</packaging>
 
     <name>constant-config-spring-boot-starter</name>

@@ -33,5 +33,9 @@ CREATE TABLE IF NOT EXISTS constant_config_center (
     create_time TIMESTAMP     NOT NULL,
     update_time TIMESTAMP     NOT NULL,
     CONSTRAINT uk_config_key UNIQUE (config_name),
-    CONSTRAINT uk_key UNIQUE (`key`)
+    CONSTRAINT uk_key UNIQUE (`key`),
+    -- 外键兜底（对齐 production 外键约束）：防止 category_id 指向不存在的分类
+    CONSTRAINT fk_ccc_category_id FOREIGN KEY (category_id)
+        REFERENCES constant_config_category (category_id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 );

@@ -55,9 +55,14 @@ public interface ConstantConfigProvider {
      * <p>可更新 {@code configName} / {@code value} / {@code valueType} / {@code remark} /
      * {@code categoryId}，不修改 {@code key} 本身；{@code version} 自增并刷新 {@code updateTime}。</p>
      *
+     * <p>乐观并发：{@code item.version} 非空时作为期望版本参与 CAS（{@code WHERE key AND version}），
+     * 与实际版本不一致则抛 {@link ConstantConfigVersionMismatchException}；为空时以已读取的当前版本
+     * 作保底校验，同样可防「读旧值再更新」窗口内的覆盖竞态。</p>
+     *
      * @param item 配置条目（必须携带 {@code key}）
      * @return 目标记录是否存在（不存在返回 {@code false}，由门面转抛异常）
      * @throws ConstantConfigConflictException 新的 {@code config_name} 被其它记录占用时抛出
+     * @throws ConstantConfigVersionMismatchException 版本不一致（并发修改）时抛出
      */
     boolean update(ConstantConfig item);
 
@@ -97,4 +102,12 @@ public interface ConstantConfigProvider {
      * @return 命中总数
      */
     long count(Long categoryId, String keyword);
+
+    /**
+     * 统计某个分类下挂载的配置条数（用于删除分类前的完整性校验）
+     *
+     * @param categoryId 分类ID
+     * @return 该分类下的配置条数（0 表示可安全删除）
+     */
+    long countByCategory(Long categoryId);
 }

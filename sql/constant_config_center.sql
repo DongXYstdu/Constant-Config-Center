@@ -45,5 +45,9 @@ CREATE TABLE IF NOT EXISTS `constant_config_center` (
     `update_time` DATETIME     NOT NULL COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_config_key` (`config_name`),
-    UNIQUE KEY `uk_key` (`key`)
+    UNIQUE KEY `uk_key` (`key`),
+    -- 外键兜底：防止 category_id 指向不存在的分类（配合应用层“删分类需无配置”校验双重防护）
+    CONSTRAINT `fk_ccc_category_id` FOREIGN KEY (`category_id`)
+        REFERENCES `constant_config_category` (`category_id`)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='常量配置中心表';
