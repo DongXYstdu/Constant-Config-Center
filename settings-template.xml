@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+
+  <servers>
+    <!-- GPG 签名密码（pom 中 passphraseServerId 引用的 id） -->
+    <!-- 将 passphrase 替换为你的 GPG 密钥密码 -->
+    <server>
+      <id>gpg.passphrase</id>
+      <passphrase>DxyyyyQwer1369@</passphrase>
+    </server>
+
+    <!-- Central Portal Token（如后续用 mvn deploy 方式发布则启用） -->
+    <!--
+    <server>
+      <id>central</id>
+      <username>ANEAaI</username>
+      <password>dmUnPb3CUDcsv8mcCgeGnIrby96PRN24f</password>
+    </server>
+    -->
+  </servers>
+
+</settings>

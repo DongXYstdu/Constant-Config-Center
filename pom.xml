@@ -18,9 +18,34 @@
 
     <name>constant-config-spring-boot-starter</name>
     <description>常量配置中心 Spring Boot Starter</description>
+    <url>https://github.com/DongXYstdu/Constant-Config-Center</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>DongXYstdu</name>
+            <email>dongxiangyangstdu@126.com</email>
+            <organization>DongXYstdu</organization>
+            <organizationUrl>https://github.com/DongXYstdu</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/DongXYstdu/Constant-Config-Center.git</connection>
+        <developerConnection>scm:git:https://github.com/DongXYstdu/Constant-Config-Center.git</developerConnection>
+        <url>https://github.com/DongXYstdu/Constant-Config-Center</url>
+    </scm>
 
     <properties>
         <java.version>17</java.version>
+        <gpg.keyname>0509D7B369650C77</gpg.keyname>
+        <gpg.passphrase/>
     </properties>
 
     <dependencies>
@@ -58,4 +83,65 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 生成源码 jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 生成 Javadoc jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <doclint>none</doclint>
+                    <source>17</source>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- GPG 签名 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                        <configuration>
+                            <keyname>${gpg.keyname}</keyname>
+                            <passphraseServerId>gpg.passphrase</passphraseServerId>
+                            <executable>C:\Program Files\GnuPG\bin\gpg.exe</executable>
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                            </gpgArguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

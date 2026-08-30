@@ -1,5 +1,17 @@
 # constant-config-spring-boot-starter
 
+<p align="center">
+  <a href="https://central.sonatype.com/artifact/io.github.dongxystdu/constant-config-spring-boot-starter">
+    <img src="https://img.shields.io/maven-central/v/io.github.dongxystdu/constant-config-spring-boot-starter?label=Maven%20Central" alt="Maven Central" />
+  </a>
+  <a href="https://github.com/DongXYstdu/Constant-Config-Center/blob/master/LICENSE">
+    <img src="https://img.shields.io/github/license/DongXYstdu/Constant-Config-Center" alt="License" />
+  </a>
+  <a href="https://github.com/DongXYstdu/Constant-Config-Center">
+    <img src="https://img.shields.io/github/stars/DongXYstdu/Constant-Config-Center?style=social" alt="GitHub stars" />
+  </a>
+</p>
+
 独立通用的 **常量配置中心** Spring Boot Starter：把散落在代码里的静态常量 / 枚举 / 阈值等集中到数据库，实现**改参数不用改代码、不用重新编译部署**，并支持跨项目复用。
 
 ## 功能特性

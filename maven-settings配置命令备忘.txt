@@ -1,0 +1,30 @@
+将 settings-template.xml 复制到 ~/.m2/settings.xml：
+Copy-Item D:\study\常量配置中心\Constant-Config-Center\settings-template.xml $env:USERPROFILE\.m2\settings.xml
+
+测试构建：
+mvn clean package "-Dgpg.keyname=8C868A24370E5082F5EDAC090509D7B369650C77"
+
+签名文件（.asc）没有生成。原因是 GPG 插件绑定在 verify 阶段，而 mvn package 只到 package 阶段。需要运行 mvn verify：
+mvn verify "-Dgpg.keyname=8C868A24370E5082F5EDAC090509D7B369650C77"
+
+验证失败：失败原因：GPG 插件找不到 gpg 可执行文件。需要在 pom 中指定 GPG 的完整路径。先确认 GPG 安装位置
+
+
+完成，生成标准 Maven 仓库目录结构 + 校验和 + 打包 zip：
+```powershell
+$targetDir = "D:\study\常量配置中心\Constant-Config-Center\target"
+$bundleDir = Join-Path $targetDir "bundle\io\github\dongxystdu\constant-config-spring-boot-starter\1.0.0"
+New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+$files = @("constant-config-spring-boot-starter-1.0.0.jar", "constant-config-spring-boot-starter-1.0.0.pom", "constant-config-spring-boot-starter-1.0.0-sources.jar", "constant-config-spring-boot-starter-1.0.0-javadoc.jar")
+foreach ($file in $files) {
+    Copy-Item (Join-Path $targetDir $file) $bundleDir
+    Copy-Item (Join-Path $targetDir "$file.asc") $bundleDir
+    $content = [System.IO.File]::ReadAllBytes((Join-Path $targetDir $file))
+    $md5 = [System.Security.Cryptography.MD5]::Create().ComputeHash($content)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create().ComputeHash($content)
+    [System.IO.File]::WriteAllText((Join-Path $bundleDir "$file.md5"), [System.BitConverter]::ToString($md5).Replace("-", "").ToLower())
+    [System.IO.File]::WriteAllText((Join-Path $bundleDir "$file.sha1"), [System.BitConverter]::ToString($sha1).Replace("-", "").ToLower())
+}
+if (Test-Path (Join-Path $targetDir "bundle.zip")) { Remove-Item (Join-Path $targetDir "bundle.zip") }
+Compress-Archive -Path (Join-Path $targetDir "bundle\*") -DestinationPath (Join-Path $targetDir "bundle.zip")
+```
