@@ -22,9 +22,4 @@ public class H2Dialect implements SqlDialect {
     public String firstRowClause() {
         return "LIMIT 1";
     }
-
-    @Override
-    public boolean supports(String productName) {
-        return productName != null && productName.toUpperCase().contains("H2");
-    }
 }

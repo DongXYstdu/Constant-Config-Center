@@ -58,12 +58,4 @@ public interface ConfigReadStore {
      * @return 命中总数
      */
     long count(Long categoryId, String keyword);
-
-    /**
-     * 统计某个分类下挂载的配置条数（用于删除分类前的完整性校验）
-     *
-     * @param categoryId 分类ID
-     * @return 该分类下的配置条数（0 表示可安全删除）
-     */
-    long countByCategory(Long categoryId);
 }

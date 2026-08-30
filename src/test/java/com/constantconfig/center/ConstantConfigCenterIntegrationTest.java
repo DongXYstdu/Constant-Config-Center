@@ -340,7 +340,7 @@ class ConstantConfigCenterIntegrationTest {
     void deleteCategoryWithChildrenThrows() {
         ccc.createCategory(category("子分类", 1L, 0));
         assertThrows(ConstantConfigException.class,
-                () -> ccc.deleteCategory(ConstantConfigCenter.DEFAULT_CATEGORY_ID));
+                () -> ccc.deleteCategory(1L));
     }
 
     @Test

@@ -38,15 +38,6 @@ import java.util.List;
  */
 public interface ConstantConfigCenter {
 
-    /**
-     * 默认分类ID，对应 {@code constant_config_category} 中 category_id=1 的分类。
-     *
-     * @deprecated 默认分类 ID 已收敛到 {@code ConstantConfigProperties.defaultCategoryId}，
-     *             实现统一从该属性取值；此处保留仅为兼容既有引用。
-     */
-    @Deprecated
-    Long DEFAULT_CATEGORY_ID = 1L;
-
     // ────────────────────── 业务取值（读取） ──────────────────────
 
     /**

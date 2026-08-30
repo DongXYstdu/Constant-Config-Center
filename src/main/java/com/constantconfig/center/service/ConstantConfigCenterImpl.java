@@ -227,9 +227,15 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
 
     @Override
     public Long createCategory(CategorySaveReqVO command) {
+        // 门面层统一做非空 / 父分类存在性校验：把原本落到存储侧 / DB 的裸约束/外键异常前移为语义异常
+        requireNotBlank(command.getCategoryName(), "categoryName");
+        Long parentId = command.getCategoryParentId() == null ? 0L : command.getCategoryParentId();
+        if (parentId != 0L) {
+            requireCategoryExists(parentId);
+        }
         ConstantConfigCategoryDO category = new ConstantConfigCategoryDO();
         category.setCategoryName(command.getCategoryName());
-        category.setCategoryParentId(command.getCategoryParentId() == null ? 0L : command.getCategoryParentId());
+        category.setCategoryParentId(parentId);
         category.setSort(command.getSort() == null ? 0 : command.getSort());
         Long id = categoryWrite.create(category);
         eventPublisher.publishEvent(new CategoryChangedEvent(this, id, ConfigChangeType.CREATED));
@@ -238,6 +244,13 @@ public class ConstantConfigCenterImpl implements ConstantConfigCenter {
 
     @Override
     public void updateCategory(CategorySaveReqVO command) {
+        // 门面层统一做非空校验；分类ID为定位键必填，显式名称非空才允许更新
+        if (command.getCategoryId() == null) {
+            throw new ConstantConfigException("categoryId不能为空");
+        }
+        if (command.getCategoryName() != null) {
+            requireNotBlank(command.getCategoryName(), "categoryName");
+        }
         ConstantConfigCategoryDO category = new ConstantConfigCategoryDO();
         category.setCategoryId(command.getCategoryId());
         category.setCategoryName(command.getCategoryName());

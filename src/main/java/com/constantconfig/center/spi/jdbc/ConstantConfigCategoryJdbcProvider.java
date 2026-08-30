@@ -7,6 +7,7 @@ import com.constantconfig.center.spi.jdbc.dialect.SqlDialect;
 import com.constantconfig.center.exception.ConstantConfigException;
 import com.constantconfig.center.properties.ConstantConfigProperties;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -89,17 +90,10 @@ public class ConstantConfigCategoryJdbcProvider implements CategoryReadStore, Ca
 
     @Override
     public Long create(ConstantConfigCategoryDO category) {
-        if (category.getCategoryId() != null) {
-            throw new IllegalArgumentException("分类更新请使用 update，此处仅允许新增分类");
-        }
+        // 门面已保证 categoryName 非空、父分类存在（R7）；本层不再重复业务校验。
+        // 分类名称全局唯一不依赖「先查后插」：若并发下撞 uk_category_name 唯一键，由
+        // DuplicateKeyException 原子翻译（R8），消除先查与插入间的竞态窗口。
         String categoryName = category.getCategoryName();
-        if (categoryName == null || categoryName.trim().isEmpty()) {
-            throw new IllegalArgumentException("分类名称不能为空");
-        }
-        if (getByCategoryName(categoryName.trim()) != null) {
-            throw new ConstantConfigException("分类名称已存在：" + categoryName.trim());
-        }
-
         Long parentId = category.getCategoryParentId() == null ? 0L : category.getCategoryParentId();
         int sort = category.getSort() == null ? 0 : category.getSort();
 
@@ -122,54 +116,54 @@ public class ConstantConfigCategoryJdbcProvider implements CategoryReadStore, Ca
         // 任一步失败整体回滚，避免留下 path 为空的脏行
         String insertSql = "INSERT INTO " + categoryTable
                 + " (category_parent_id, category_name, path, level, sort) VALUES (?, ?, '', ?, ?)";
-        return transactionTemplate.execute(status -> {
-            KeyHolder keyHolder = new GeneratedKeyHolder();
-            jdbcTemplate.update(connection -> {
-                PreparedStatement ps = connection.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS);
-                ps.setLong(1, parentId);
-                ps.setString(2, categoryName.trim());
-                ps.setInt(3, level);
-                ps.setInt(4, sort);
-                return ps;
-            }, keyHolder);
+        try {
+            return transactionTemplate.execute(status -> {
+                KeyHolder keyHolder = new GeneratedKeyHolder();
+                jdbcTemplate.update(connection -> {
+                    PreparedStatement ps = connection.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS);
+                    ps.setLong(1, parentId);
+                    ps.setString(2, categoryName.trim());
+                    ps.setInt(3, level);
+                    ps.setInt(4, sort);
+                    return ps;
+                }, keyHolder);
 
-            Number key = keyHolder.getKey();
-            if (key == null) {
-                throw new IllegalStateException("生成分类ID失败");
-            }
-            Long newId = key.longValue();
+                Number key = keyHolder.getKey();
+                if (key == null) {
+                    throw new IllegalStateException("生成分类ID失败");
+                }
+                Long newId = key.longValue();
 
-            String path = parentPath + "/" + newId;
-            String updateSql = "UPDATE " + categoryTable + " SET path = ? WHERE category_id = ?";
-            jdbcTemplate.update(updateSql, path, newId);
-            return newId;
-        });
+                String path = parentPath + "/" + newId;
+                String updateSql = "UPDATE " + categoryTable + " SET path = ? WHERE category_id = ?";
+                jdbcTemplate.update(updateSql, path, newId);
+                return newId;
+            });
+        } catch (DuplicateKeyException e) {
+            // uk_category_name 冲突：并发下同名分类被 DB 唯一键原子拦截，翻译为语义异常（R8）
+            throw new ConstantConfigException("分类名称已存在：" + categoryName.trim(), e);
+        }
     }
 
     @Override
     public boolean update(ConstantConfigCategoryDO category) {
-        if (category.getCategoryId() == null) {
-            throw new IllegalArgumentException("分类ID不能为空");
-        }
-        ConstantConfigCategoryDO existing = get(category.getCategoryId());
+        // 门面已保证 categoryId 非空、显式 categoryName 非空（R7）；本层不再重复校验。
+        Long categoryId = category.getCategoryId();
+        ConstantConfigCategoryDO existing = get(categoryId);
         if (existing == null) {
             return false;
         }
-        String name = category.getCategoryName();
-        if (name != null && name.trim().isEmpty()) {
-            throw new IllegalArgumentException("分类名称不能为空");
-        }
-        if (name != null && !name.trim().equals(existing.getCategoryName())) {
-            ConstantConfigCategoryDO byName = getByCategoryName(name.trim());
-            if (byName != null) {
-                throw new ConstantConfigException("分类名称已存在：" + name.trim());
-            }
-        }
-        String finalName = name != null ? name.trim() : existing.getCategoryName();
+        String name = category.getCategoryName() != null
+                ? category.getCategoryName().trim() : existing.getCategoryName();
         Integer sort = category.getSort() != null ? category.getSort() : existing.getSort();
 
         String sql = "UPDATE " + categoryTable + " SET category_name = ?, sort = ? WHERE category_id = ?";
-        jdbcTemplate.update(sql, finalName, sort, existing.getCategoryId());
+        try {
+            jdbcTemplate.update(sql, name, sort, existing.getCategoryId());
+        } catch (DuplicateKeyException e) {
+            // uk_category_name 冲突：改名撞同名记录由 DB 唯一键原子拦截（R8）
+            throw new ConstantConfigException("分类名称已存在：" + name, e);
+        }
         return true;
     }
 

@@ -35,7 +35,7 @@
 <dependency>
     <groupId>io.github.dongxystdu</groupId>
     <artifactId>constant-config-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 
@@ -219,7 +219,7 @@ yudao 用 `yudao-dependencies` 统一管理三方依赖版本，在 [yudao-depen
 <dependency>
     <groupId>io.github.dongxystdu</groupId>
     <artifactId>constant-config-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 

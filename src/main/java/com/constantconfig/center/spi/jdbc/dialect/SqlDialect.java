@@ -28,11 +28,4 @@ public interface SqlDialect {
 
     /** 只取一行子句，无占位参数，如 {@code "LIMIT 1"} / {@code "FETCH FIRST 1 ROWS ONLY"}。 */
     String firstRowClause();
-
-    /**
-     * 是否支持指定数据库产品名（来自 {@code DatabaseMetaData#getDatabaseProductName()}）。
-     *
-     * @param productName 数据库产品名，可为 {@code null}
-     */
-    boolean supports(String productName);
 }

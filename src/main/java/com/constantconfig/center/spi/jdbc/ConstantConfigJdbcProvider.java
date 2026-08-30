@@ -198,13 +198,6 @@ public class ConstantConfigJdbcProvider implements ConfigReadStore, ConfigWriteS
         return count == null ? 0L : count;
     }
 
-    @Override
-    public long countByCategory(Long categoryId) {
-        String sql = "SELECT COUNT(*) FROM " + table + " WHERE category_id = ?";
-        Long count = jdbcTemplate.queryForObject(sql, Long.class, categoryId);
-        return count == null ? 0L : count;
-    }
-
     /** 追加按分类 + 关键字的过滤条件与参数 */
     private void buildFilter(StringBuilder sql, List<Object> args, Long categoryId, String keyword) {
         if (categoryId != null) {
